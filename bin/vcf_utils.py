@@ -159,7 +159,7 @@ def vcf_header():
     return vcf_str
 
 def tsv_header():
-    return 'sample\trun_id\trun\tchr\tpos\tref\talt\tVAF\tscore\tcomplexity\tsupport\toverlap\tcontrol\tcov\talt_cov\tmax_cov\tannotation'
+    return 'sample\trun_id\trun\tchr\tpos\tref\talt\tVAF\ttype\tscore\tcomplexity\tsupport\toverlap\tcontrol\tcov\talt_cov\tmax_cov\tannotation'
 
 
 def vcf_variant(variant, features, extra_features, precision=VAF_PRECISION):
@@ -282,13 +282,13 @@ def dump_vcf_to_tsv(vcf_file, out_tsv_file, append=False):
         sample = record.INFO[SAMPLE][0]
         run_id = record.INFO[RUN_ID][0]
         run_name = record.INFO[RUN_NAME][0]
-        vaf = record.INFO[VAF]
+        vaf = round(record.INFO[VAF], VAF_precision)
         v_type = record.INFO[V_TYPE]
-        score = record.INFO[SCORE]
-        complexity = record.INFO[COMPLEXITY]
-        support = record.INFO[SUPPORT]
-        overlap = record.INFO[OVERLAP]
-        control = record.INFO[CONTROL]
+        score = round(record.INFO[SCORE], VAF_precision)
+        complexity = round(record.INFO[COMPLEXITY], VAF_precision)
+        support = round(record.INFO[SUPPORT], VAF_precision)
+        overlap = round(record.INFO[OVERLAP], VAF_precision)
+        control = round(record.INFO[CONTROL], VAF_precision)
         cov = record.INFO[SOURCE_COV]
         alt_cov = record.INFO[TOTAL_COV]
         max_cov = record.INFO[MAX_COV]
