@@ -183,7 +183,7 @@ def vcf_variant(variant, features, extra_features, precision=VAF_PRECISION):
         f"\t{variant.get_variant_seq()}"
         f"\t.\tFAIL"
         f"\tTYPE={variant.get_type()}"
-        f";{VAF}={round(100.0 * variant.get_vaf(), precision)}"
+        f";{VAF}={round(variant.get_vaf(), precision)}"
         f";{SCORE}={round(extra_features[SCORE], precision)}"
         f";{COMPLEXITY}={round(extra_features[COMPLEXITY], precision)}"
         f";{SUPPORT}={round(extra_features[SUPPORT], precision)}"
@@ -283,7 +283,7 @@ def dump_vcf_to_tsv(vcf_file, out_tsv_file, append=False):
         sample = record.INFO[SAMPLE][0]
         run_id = record.INFO[RUN_ID][0]
         run_name = record.INFO[RUN_NAME][0]
-        vaf = round(record.INFO[VAF], VAF_PRECISION)
+        vaf = round(100.0 * record.INFO[VAF], VAF_PRECISION)
         v_type = record.INFO[V_TYPE]
         score = round(record.INFO[SCORE], VAF_PRECISION)
         complexity = round(record.INFO[COMPLEXITY], VAF_PRECISION)
