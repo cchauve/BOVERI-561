@@ -60,19 +60,16 @@ def sort_by_vaf(x):
     """
     return x[0].get_vaf()
 
-
 VCF_SORT = {}  # Dictionary of sorting function and boolean indicating the reverse value
 VCF_SORT_POS, VCF_SORT_VAF, = 'pos', 'vaf'
 VCF_SORT[VCF_SORT_POS] = (sort_by_position, False)
 VCF_SORT[VCF_SORT_VAF] = (sort_by_vaf, True)
 
-
 def vcf_sorting_criteria():
     return list(VCF_SORT.keys())
 
 
-# VCF file writing
-
+# Extra variant features access keys
 COMPLEXITY = 'COMPLEXITY_SCORE'
 SUPPORT = 'SUPPORT_SCORE'
 OVERLAP = 'OVERLAP_SCORE'
@@ -84,12 +81,15 @@ SAMPLE = 'SAMPLE'
 RUN_ID = 'RUN_ID'
 RUN_NAME = 'RUN_NAME'
 
+# VCF columns labels
 CHR_COL = 'CHROM'
 POS_COL = 'POS'
 REF_COL = 'REF'
 ALT_COL = 'ALT'
 INFO_COL = 'INFO'
 ID_COL = 'ID'
+QUAL_COL = 'QUAL'
+FILTER_COL = 'FILTER'
 
 VCF_DESC = {}
 VCF_DESC[V_TYPE] = '\"Variant type (DEL, INS, DELINS, MNV, SNP)\"'
@@ -159,7 +159,11 @@ def vcf_header():
     return vcf_str
 
 def tsv_header():
-    return '\tsample\trun_id\trun\tchr\tpos\tref\talt\tvaf\ttype\tscore\tcomplexity\tsupport\toverlap\tcontrol\tcov\talt_cov\tmax_cov\trepeats\tannotation'
+    return (
+        f"\tsample\trun_id\trun\tchr\tpos\tref\talt\tvaf\ttype"
+        f"\tscore\tcomplexity\tsupport\toverlap\tcontrol"
+        f"\tcov\talt_cov\tmax_cov\trepeats\tannotation"
+    )
 
 
 def vcf_variant(variant, features, extra_features, precision=VAF_PRECISION):
@@ -182,7 +186,7 @@ def vcf_variant(variant, features, extra_features, precision=VAF_PRECISION):
         f"'\t{variant.get_wt_seq()}"
         f"\t{variant.get_variant_seq()}"
         f"\t.\tFAIL"
-        f"\tTYPE={variant.get_type()}"
+        f"\t{V_TYPE}={variant.get_type()}"
         f";{VAF}={round(variant.get_vaf(), precision)}"
         f";{SCORE}={round(extra_features[SCORE], precision)}"
         f";{COMPLEXITY}={round(extra_features[COMPLEXITY], precision)}"
@@ -212,7 +216,10 @@ def vcf_variant(variant, features, extra_features, precision=VAF_PRECISION):
     return vcf_str
 
 
-def vcf_write_variants_features(out_file, variants_list, precision=VAF_PRECISION, sorting=None):
+def vcf_write_variants_features(out_file,
+                                variants_list,
+                                precision=VAF_PRECISION,
+                                sorting=None):
     """
     Write a list of variants and features into a vcf file
 
@@ -227,17 +234,25 @@ def vcf_write_variants_features(out_file, variants_list, precision=VAF_PRECISION
         sort_arg = VCF_SORT[sorting]
         variants_list.sort(key=lambda x: sort_arg[0](x), reverse=sort_arg[1])
     for (variant, features, extra_features) in variants_list:
-        out_vcf.write(f"\n{vcf_variant(variant, features, extra_features, precision=precision)}")
+        out_str = vcf_variant(
+            variant, features, extra_features, precision=precision
+        )
+        out_vcf.write(f"\n{out_str}")
     out_vcf.close()
 
-def vcf_write_df(out_file, variants_df, precision=VAF_PRECISION, sorting=None, append=False):
+def vcf_write_df(out_file,
+                 variants_df,
+                 precision=VAF_PRECISION,
+                 sorting=None,
+                 append=False):
     """
     Write a list of variants and features into a vcf file
-
+    :assumption: all features are under an INFO column
     :param: out_file (str): path to output file
     :param: variants_df (DataFrame): input dataframe
     :param: precision (int): precision of floating numbers
     :param: sorting (None or str in VCF_SORT.keys()): None implies no sorting
+    :param: append (bool): True if file already with header
     """
     if not append:
         out_vcf = open(out_file, 'w')
@@ -246,7 +261,7 @@ def vcf_write_df(out_file, variants_df, precision=VAF_PRECISION, sorting=None, a
         out_vcf = open(out_file, 'a')
     if sorting is not None:
         sort_arg = VCF_SORT[sorting]
-        variants_df.sort_values(by=['CHROM', 'POS'])
+        variants_df.sort_values(by=[CHR_COL, POS_COL])
     for _, row in variants_df.iterrows():
         row_str = '\t'.join([str(value[1]) for value in row.items()])
         out_vcf.write(f"\n{row_str}")
@@ -262,20 +277,26 @@ def vcf_import_df(vcf_file):
         lines = [l for l in f if not l.startswith('##')]
     return pd.read_csv(
         io.StringIO(''.join(lines)),
-        dtype={'#CHROM': str, 'POS': int, 'ID': str, 'REF': str, 'ALT': str,
-               'QUAL': str, 'FILTER': str, 'INFO': str},
+        dtype={'#CHROM': str, POS_COL: int, ID_COL: str, REF_COL: str,
+                ALT_COL: str, QUAL_COL: str, FILTER_COL: str, INFO_COL: str},
         sep='\t'
-    ).rename(columns={'#CHROM': 'CHROM', })
+    ).rename(columns={'#CHROM': CHR_COL, })
 
 
 
-def dump_vcf_to_tsv(vcf_file, out_tsv_file, append=False):
+def dump_vcf_to_tsv(in_vcf_file, out_tsv_file, append=False):
+    """
+    Add to a TSV file the variants in a VCF file
+    :param: in_vcf_file (str): path to input VCF file
+    :param: out_tsv_file (str): path to the output TSV file
+    :param: append (bool): True if output file already contains a TSV header
+    """
     if not append:
         out_tsv = open(out_tsv_file, 'w')
         out_tsv.write(tsv_header())
-    vcf_reader = vcf.Reader(open(vcf_file, 'r'))
+    in_vcf_reader = vcf.Reader(open(in_vcf_file, 'r'))
     index = 0
-    for record in vcf_reader:
+    for record in in_vcf_reader:
         chrom = record.CHROM
         pos = record.POS
         ref = str(record.REF)
@@ -293,11 +314,23 @@ def dump_vcf_to_tsv(vcf_file, out_tsv_file, append=False):
         cov = record.INFO[SOURCE_COV]
         alt_cov = record.INFO[TOTAL_COV]
         max_cov = record.INFO[MAX_COV]
+        wt_repeat = [
+            record.INFO[WT_RU], record.INFO[WT_RU_CNB],
+            record.INFO[WT_RU_LEFT_CNB], record.INFO[WT_RU_RIGHT_CNB]
+        ]
+        v_repeat = [
+            record.INFO[V_RU], record.INFO[V_RU_CNB],
+            record.INFO[V_RU_LEFT_CNB], record.INFO[V_RU_RIGHT_CNB]
+        ]
         annotation = ','.join(record.INFO[ANNOTATION])
-        wt_repeat = ':'.join([str(record.INFO[WT_RU]), str(record.INFO[WT_RU_CNB]), str(record.INFO[WT_RU_LEFT_CNB]), str(record.INFO[WT_RU_RIGHT_CNB])])
-        v_repeat = ':'.join([str(record.INFO[V_RU]), str(record.INFO[V_RU_CNB]), str(record.INFO[V_RU_LEFT_CNB]), str(record.INFO[V_RU_RIGHT_CNB])])
-        repeats = ','.join([wt_repeat, v_repeat])
-        fields = [index, sample, run_id, run_name, chrom, pos, ref, alt, vaf, v_type, score, complexity, support, overlap, control, cov, alt_cov, max_cov, repeats, annotation]
+        wt_repeat_str = ':'.join([str(x) for x in wt_repeat])
+        v_repeat_str = ':'.join([str(x) for x in v_repeat])
+        repeats = ','.join([wt_repeat_str, v_repeat_str])
+        fields = [
+            index, sample, run_id, run_name, chrom, pos, ref, alt, vaf, v_type,
+            score, complexity, support, overlap, control,
+            cov, alt_cov, max_cov, repeats, annotation
+        ]
         out_tsv.write('\n' + '\t'.join([str(x) for x in fields]))
         index += 1
 

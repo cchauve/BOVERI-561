@@ -59,6 +59,8 @@ from vcf_utils import (
     SUPPORT,
     VCF_SORT_POS,
     SAMPLE,
+    CHR_COL,
+    POS_COL,
     INFO_COL,
     ID_COL,
     RUN_ID,
@@ -66,33 +68,13 @@ from vcf_utils import (
 )
 
 
-def import_vcf_df(file_path):
-    with open(file_path, 'r') as f:
-        lines = [l for l in f if not l.startswith('##')]
-    return pd.read_csv(
-        io.StringIO(''.join(lines)),
-        dtype={'#CHROM': str, 'POS': int, 'ID': str, 'REF': str, 'ALT': str,
-               'QUAL': str, 'FILTER': str, 'INFO': str},
-        sep='\t'
-    ).rename(columns={'#CHROM': 'CHROM', })
+# Parameters for penalty score functions
+COMP_KMIN = 2 # Min k-mers considered for sequence complexity score
+COMP_KMAX = 3 # Max k-mers considered for sequence complexity score
+COMP_L = 5 # Number of flanking bases for sequence complexity score
+SUPP_MIN = 10 # Min support for support score
 
-def reformat_info(row):
-    info_list = row[INFO_COL].split(';')
-    info_dict = {x.split('=')[0]: x.split('=')[1] for x in info_list}
-    info_dict[SCORE] = row[SCORE]
-    info_dict[COMPLEXITY] = row[COMPLEXITY]
-    info_dict[SUPPORT] = row[SUPPORT]
-    info_dict[OVERLAP] = row[OVERLAP]
-    # info_dict[CONTROL] = row[CONTROL]
-    info_str = ';'.join([f"{key}={value}" for key, value in info_dict.items()])
-    return info_str
-
-COMP_KMIN = 2
-COMP_KMAX = 3
-COMP_L = 5
-SUPP_MIN = 10
-
-# Extension for filtered VCF files
+# Extension for VCF files with scores computed
 FILTERED_INDELS_VCF_EXT = '_indels_filtered'
 
 if __name__ == "__main__":
@@ -120,7 +102,7 @@ if __name__ == "__main__":
         :param: sample_id (str): sample ID
         :param: amplicon ID (str): amplicon ID
         :param: manifest (AmpliconsManifest): amplicon manifest
-        :return:  list(Variant, VariantFeatures): list of un-filtered variants
+        :return:  list(Variant, VariantFeatures): list of un-filtered indels
         and their features
         """
         # Loading data needed for filters, amplicon sequence, clusters,
@@ -149,12 +131,13 @@ if __name__ == "__main__":
 
 
     def process_sample(
-        parameters, sample_id, run_id, run_name, amplicon_list, manifest, control_calls, out_vcf_file, control_sample=True
+        parameters, sample_id, run_id, run_name, amplicon_list,
+        manifest, control_calls, out_vcf_file, control_sample=True
     ):
         """
         Filter SNP and indels calls for a sample, using control_calls to filter
-        with control_samples if control_sample is True and populating control_calls
-        otherwise.
+        with control_samples if control_sample is True and populating
+        control_calls otherwise.
         Export the resulting variants in two VCF files, one prior to run snpEff
         and one after running snpEff.
 
@@ -162,11 +145,25 @@ if __name__ == "__main__":
         :param: sample_id (str): ID of the sample
         :param: amplicon_list (list(str)): list of considered amplicons
         :param: manifest (AmpliconsManifest): amplicons manifest
-        :param: control_calls (dict([INDELS, SNPS] -> list((Variant, VariantFeatures)))):
-        control variants
+        :param: control_calls (dict([INDELS, SNPS] ->
+        list((Variant, VariantFeatures)))): control variants
         :param: control_sample (bool): True if sample_id is a control sample
         """
-        # Creating lists of all SNPs and indels from the variants graph
+        def reformat_info(row):
+            """
+            Reformat the INFO field to integrate the actual scores recorded
+            in other fields
+            """
+            info_list = row[INFO_COL].split(';')
+            info_dict = {x.split('=')[0]: x.split('=')[1] for x in info_list}
+            info_dict[SCORE] = row[SCORE]
+            info_dict[COMPLEXITY] = row[COMPLEXITY]
+            info_dict[SUPPORT] = row[SUPPORT]
+            info_dict[OVERLAP] = row[OVERLAP]
+            info_str = ';'.join([f"{key}={value}" for key, value in info_dict.items()])
+            return info_str
+
+        # Creating lists of all indels from the variants graph
         # filtered to remove support by alignments with a number of gaps
         # above filter_parameters[FILTER_NB_GAPS]
         sample = sample_id.split('_S')[0]
@@ -176,28 +173,46 @@ if __name__ == "__main__":
                 parameters, sample_id, amplicon_id, manifest
             )
             in_indels_list += amp_indels_list
-        filter_parameters = parameters.get_filters_parameters()
         # Filtering indels per sample
-        aggregated_indels_list_aux = aggregate_variants(in_indels_list)
+        aggregated_indels_list_1 = aggregate_variants(in_indels_list)
+        score_dict = {
+            CONTROL: 1.0,  SCORE: 1.0,  COMPLEXITY: 1.0, SUPPORT: 1.0,
+            OVERLAP: 1.0, SAMPLE: sample, RUN_ID: run_id, RUN_NAME: run_name
+        }
         if control_sample:
-            score_dict = {CONTROL: 1.0, SCORE: 1.0, COMPLEXITY: 1.0, SUPPORT: 1.0, OVERLAP: 1.0, SAMPLE: sample, RUN_ID: run_id, RUN_NAME: run_name}
-            aggregated_indels_list = [(variant, features, score_dict.copy()) for (variant, features) in aggregated_indels_list_aux]
+            # Recording but not writing indel calls
+            aggregated_indels_list = [
+                (variant, features, score_dict.copy())
+                for (variant, features) in aggregated_indels_list_1
+            ]
             control_calls[sample_id] = aggregated_indels_list
         else:
-            score_dict = {CONTROL: 1.0, SCORE: 1.0, COMPLEXITY: 1.0, SUPPORT: 1.0, OVERLAP: 1.0, SAMPLE: sample, RUN_ID: run_id, RUN_NAME: run_name}
-            aggregated_indels_list_aux1 = [(variant, features, score_dict.copy()) for (variant, features) in aggregated_indels_list_aux]
-            aggregated_indels_list = get_control_samples_feature(parameters, aggregated_indels_list_aux1, control_calls)
+            # Writing indel calls in a VCF file
+            aggregated_indels_list_2 = [
+                (variant, features, score_dict.copy())
+                for (variant, features) in aggregated_indels_list_1
+            ]
+            aggregated_indels_list = get_control_samples_feature(
+                parameters, aggregated_indels_list_2, control_calls
+            )
+            # Writing features in a temporary VCF file
             out_indels_ext = f"{FILTERED_INDELS_VCF_EXT}_aux"
-            out_indels_vcf_file = vcf_sample_file(parameters, sample_id, ext=out_indels_ext)
+            out_indels_vcf_file = vcf_sample_file(
+                parameters, sample_id, ext=out_indels_ext
+            )
             vcf_write_variants_features(out_indels_vcf_file, aggregated_indels_list)
+            # Reading the VCF file into a DataFrame
             indels_df = vcf_import_df(out_indels_vcf_file)
-            indels_df.sort_values(by=['CHROM', 'POS'], inplace=True)
+            # # Bug: the initial VCF files
+            # indels_df[ID_COL] = indels_df.apply(lambda row: '.', axis=1)
+            os.remove(out_indels_vcf_file)
+            indels_df.sort_values(by=[CHR_COL, POS_COL], inplace=True)
             indels_df.reset_index(drop=True, inplace=True)
+            # Updating the penalizing scores
             add_complexity_score(indels_df, manifest, COMP_KMIN, COMP_KMAX, COMP_L)
             add_support_score(indels_df, SUPP_MIN)
             add_overlap_score(indels_df)
             add_confidence_score(indels_df)
-            indels_df[ID_COL] = indels_df.apply(lambda row: '.', axis=1)
             indels_df[INFO_COL] = indels_df.apply(lambda row: reformat_info(row), axis=1)
             indels_df.drop(columns=[SCORE, COMPLEXITY, SUPPORT, OVERLAP], inplace=True)
             vcf_write_df(out_vcf_file, indels_df, sorting=VCF_SORT_POS, append=True)
