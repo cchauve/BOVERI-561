@@ -159,7 +159,7 @@ def vcf_header():
     return vcf_str
 
 def tsv_header():
-    return 'sample\trun_id\trun\tchr\tpos\tref\talt\tVAF\ttype\tscore\tcomplexity\tsupport\toverlap\tcontrol\tcov\talt_cov\tmax_cov\tannotation'
+    return '\tsample\trun_id\trun\tchr\tpos\tref\talt\tVAF\ttype\tscore\tcomplexity\tsupport\toverlap\tcontrol\tcov\talt_cov\tmax_cov\tannotation'
 
 
 def vcf_variant(variant, features, extra_features, precision=VAF_PRECISION):
