@@ -24,6 +24,12 @@ alternate sequence, VAF) plus the following fields
 - cov: coverage of the amplicon(s) by merged reads (a merged read corresponds to two reads)
 - alt_cov: coverage of the variant by merged reads
 - max_cov: size (in number of merged reads) of the largest supporting cluster
+- repeats: WT1:WT2:WT3:WT4,V1:V2:V3:V4
+  WT1 = length of the repeat unit of the reference sequence
+  WT2 = number of copies of the repeat unit in the reference sequence
+  WT3 = number of copies of the repeat unit left of variant breakpoint
+  WT4 = number of copies of repeat unit right of variant breakpoint
+  V1, V2, V3,  V4: same for alternate sequence 
 - annotation: snpEff annotation
 
 
