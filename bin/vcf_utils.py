@@ -274,6 +274,7 @@ def dump_vcf_to_tsv(vcf_file, out_tsv_file, append=False):
         out_tsv = open(out_tsv_file, 'w')
         out_tsv.write(tsv_header())
     vcf_reader = vcf.Reader(open(vcf_file, 'r'))
+    index = 0
     for record in vcf_reader:
         chrom = record.CHROM
         pos = record.POS
@@ -282,20 +283,20 @@ def dump_vcf_to_tsv(vcf_file, out_tsv_file, append=False):
         sample = record.INFO[SAMPLE][0]
         run_id = record.INFO[RUN_ID][0]
         run_name = record.INFO[RUN_NAME][0]
-        vaf = round(record.INFO[VAF], VAF_precision)
+        vaf = round(record.INFO[VAF], VAF_PRECISION)
         v_type = record.INFO[V_TYPE]
-        score = round(record.INFO[SCORE], VAF_precision)
-        complexity = round(record.INFO[COMPLEXITY], VAF_precision)
-        support = round(record.INFO[SUPPORT], VAF_precision)
-        overlap = round(record.INFO[OVERLAP], VAF_precision)
-        control = round(record.INFO[CONTROL], VAF_precision)
+        score = round(record.INFO[SCORE], VAF_PRECISION)
+        complexity = round(record.INFO[COMPLEXITY], VAF_PRECISION)
+        support = round(record.INFO[SUPPORT], VAF_PRECISION)
+        overlap = round(record.INFO[OVERLAP], VAF_PRECISION)
+        control = round(record.INFO[CONTROL], VAF_PRECISION)
         cov = record.INFO[SOURCE_COV]
         alt_cov = record.INFO[TOTAL_COV]
         max_cov = record.INFO[MAX_COV]
         annotation = ','.join(record.INFO[ANNOTATION])
-        fields = [sample, run_id, run_name, chrom, pos, ref, alt, vaf, v_type, score, complexity, support, overlap, control, cov, alt_cov, max_cov, annotation]
+        fields = [index, sample, run_id, run_name, chrom, pos, ref, alt, vaf, v_type, score, complexity, support, overlap, control, cov, alt_cov, max_cov, annotation]
         out_tsv.write('\n' + '\t'.join([str(x) for x in fields]))
-    return False
+        index += 1
 
 
 def run_snpeff(parameters, in_vcf_file):
