@@ -294,8 +294,8 @@ def dump_vcf_to_tsv(vcf_file, out_tsv_file, append=False):
         alt_cov = record.INFO[TOTAL_COV]
         max_cov = record.INFO[MAX_COV]
         annotation = ','.join(record.INFO[ANNOTATION])
-        wt_repeat = ':'.join([record.INFO[WT_RU], record.INFO[WT_RU_CNB], record.INFO[WT_RU_LEFT_CNB], record.INFO[WT_RU_RIGHT_CNB]])
-        v_repeat = ':'.join([record.INFO[V_RU], record.INFO[V_RU_CNB], record.INFO[V_RU_LEFT_CNB], record.INFO[V_RU_RIGHT_CNB]])
+        wt_repeat = ':'.join([str(record.INFO[WT_RU]), str(record.INFO[WT_RU_CNB]), str(record.INFO[WT_RU_LEFT_CNB]), str(record.INFO[WT_RU_RIGHT_CNB])])
+        v_repeat = ':'.join([str(record.INFO[V_RU]), str(record.INFO[V_RU_CNB]), str(record.INFO[V_RU_LEFT_CNB]), str(record.INFO[V_RU_RIGHT_CNB])])
         repeats = ','.join([wt_repeat, v_repeat])
         fields = [index, sample, run_id, run_name, chrom, pos, ref, alt, vaf, v_type, score, complexity, support, overlap, control, cov, alt_cov, max_cov, repeats, annotation]
         out_tsv.write('\n' + '\t'.join([str(x) for x in fields]))
