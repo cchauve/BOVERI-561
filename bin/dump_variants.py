@@ -180,11 +180,11 @@ if __name__ == "__main__":
         # Filtering indels per sample
         aggregated_indels_list_aux = aggregate_variants(in_indels_list)
         if control_sample:
-            score_dict = {CONTROL: -1.0, SCORE: 1.0, COMPLEXITY: 1.0, SUPPORT: 1.0, OVERLAP: 1.0, SAMPLE: sample, RUN_ID: run_id, RUN_NAME: run_name}
+            score_dict = {CONTROL: 1.0, SCORE: 1.0, COMPLEXITY: 1.0, SUPPORT: 1.0, OVERLAP: 1.0, SAMPLE: sample, RUN_ID: run_id, RUN_NAME: run_name}
             aggregated_indels_list = [(variant, features, score_dict.copy()) for (variant, features) in aggregated_indels_list_aux]
             control_calls[sample_id] = aggregated_indels_list
         else:
-            score_dict = {CONTROL: -1.0, SCORE: 1.0, COMPLEXITY: 1.0, SUPPORT: 1.0, OVERLAP: 1.0, SAMPLE: sample, RUN_ID: run_id, RUN_NAME: run_name}
+            score_dict = {CONTROL: 1.0, SCORE: 1.0, COMPLEXITY: 1.0, SUPPORT: 1.0, OVERLAP: 1.0, SAMPLE: sample, RUN_ID: run_id, RUN_NAME: run_name}
             aggregated_indels_list_aux1 = [(variant, features, score_dict.copy()) for (variant, features) in aggregated_indels_list_aux]
             aggregated_indels_list = get_control_samples_feature(parameters, aggregated_indels_list_aux1, control_calls)
             out_indels_ext = f"{FILTERED_INDELS_VCF_EXT}_aux"
