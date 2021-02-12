@@ -183,7 +183,7 @@ def vcf_variant(variant, features, extra_features, precision=VAF_PRECISION):
         f"\t{variant.get_variant_seq()}"
         f"\t.\tFAIL"
         f"\tTYPE={variant.get_type()}"
-        f";{VAF}={round(variant.get_vaf(), precision)}"
+        f";{VAF}={round(100.0 * variant.get_vaf(), precision)}"
         f";{SCORE}={round(extra_features[SCORE], precision)}"
         f";{COMPLEXITY}={round(extra_features[COMPLEXITY], precision)}"
         f";{SUPPORT}={round(extra_features[SUPPORT], precision)}"
