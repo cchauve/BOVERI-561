@@ -40,6 +40,7 @@ from postprocessing_utils import (
     add_complexity_score,
     add_overlap_score,
     get_control_samples_feature,
+    CONTROL_DEFAULT,
 )
 from bin.variants_graph_utils import VariantsGraph
 from bin.variants_utils import (
@@ -175,8 +176,9 @@ if __name__ == "__main__":
             in_indels_list += amp_indels_list
         # Filtering indels per sample
         aggregated_indels_list_1 = aggregate_variants(in_indels_list)
+        # Extra features default values
         score_dict = {
-            CONTROL: 1.0,  SCORE: 1.0,  COMPLEXITY: 1.0, SUPPORT: 1.0,
+            CONTROL: CONTROL_DEFAULT,  SCORE: 1.0,  COMPLEXITY: 1.0, SUPPORT: 1.0,
             OVERLAP: 1.0, SAMPLE: sample, RUN_ID: run_id, RUN_NAME: run_name
         }
         if control_sample:

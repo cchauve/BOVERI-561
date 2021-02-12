@@ -25,6 +25,7 @@ from vcf_utils import (
     ID_COL,
 )
 
+CONTROL_DEFAULT = 1.0
 
 def get_control_samples_feature(parameters, variants_features, ctrl_variants_features):
     """
@@ -49,7 +50,8 @@ def get_control_samples_feature(parameters, variants_features, ctrl_variants_fea
     # Filtering input variants
     out_list = []
     for (variant, features, score_dict) in variants_features:
-        v_str, closest_vaf, closest_vaf_diff = variant.to_str(novaf=True), 0.0, 1.0
+        v_str = variant.to_str(novaf=True)
+        closest_vaf, closest_vaf_diff = CONTROL_DEFAULT, 1.0
         if v_str in ctrl_variants_str:
             ctrl_vaf_list = ctrl_variants_vaf[v_str]
             in_vaf = variant.get_vaf()
@@ -65,6 +67,12 @@ def get_control_samples_feature(parameters, variants_features, ctrl_variants_fea
 ## Computing confidence score
 
 def compute_complexity_seq(seq, kmin, kmax):
+    """
+    Computes the sequence complexity of a sequence
+    :param: seq (str): sequence to analyze
+    :param: kmin, kmax (int): range of kmers values to consider
+    :return: float: sequence complexity of seq
+    """
     def kmers(seq, k):
         i_max = len(seq) - k
         coords = [(i, i + k) for i in range(i_max + 1)]
@@ -84,11 +92,23 @@ def compute_complexity_variant(ref,
                                amplicon_start,
                                kmin,
                                kmax,
-                               l):
+                               flanking_len):
+    """
+    Computes the sequence complexity of a variant (ref, at, pos)
+    :param: ref, alt (str): variant reference and alternate sequences
+    :param: pos (int): chromosomal position of variant
+    :param: amplicon_seq (str): amplicon sequence where the variant is observed
+    :param: amplicon_start (int): chromosomal position of amplicon
+    :param: kmin, kmax (int): kmers values range for complexity computation
+    :param: flanking_len (int): number of bases flanking the breakpoint of the
+    variant to consider for complexity calculation
+    :return: float, float: sequence complexity of reference and alternate
+    sequences of the variant
+    """
     v_amp_start = pos - amplicon_start + (1 if ref[0] == alt[0] else 0)
-    flanking_start = max(0, v_amp_start - l)
+    flanking_start = max(0, v_amp_start - flanking_len)
     v_amp_end = pos + len(ref) - 1 - amplicon_start
-    flanking_end = min(len(amplicon_seq) - 1, v_amp_end + l)
+    flanking_end = min(len(amplicon_seq) - 1, v_amp_end + flanking_len)
     left_flanking_seq = amplicon_seq[flanking_start:v_amp_start]
     right_flanking_seq = amplicon_seq[v_amp_end+1:flanking_end + 1]
     ref_complexity = compute_complexity_seq(
@@ -100,7 +120,16 @@ def compute_complexity_variant(ref,
     return ref_complexity, alt_complexity
 
 
-def compute_complexity_row(row, manifest, kmin, kmax, l):
+def compute_complexity_row(row, manifest, kmin, kmax, flanking_len):
+    """
+    Computes the sequence complexity of a variant encoded in a dataframe row
+    :param: row (DataFrame row): row encoding the variant
+    :kmin, kmax (int): kmers values range for complexity computation
+    :param: flanking_len (int): number of bases flanking the breakpoint of the
+    variant to consider for complexity calculation
+    :return: float, float: sequence complexity of reference and alternate
+    sequences of the variant
+    """
     ref, alt, pos = row[REF_COL], row[ALT_COL], row[POS_COL]
     info_list = row[INFO_COL].split(';')
     for info in info_list:
@@ -111,17 +140,34 @@ def compute_complexity_row(row, manifest, kmin, kmax, l):
             amplicon_start = amplicon.get_start()
             amplicon_seq = amplicon.get_seq()
     return compute_complexity_variant(
-        ref, alt, pos, amplicon_seq, amplicon_start, kmin, kmax, l
+        ref, alt, pos, amplicon_seq, amplicon_start, kmin, kmax, flanking_len
     )
 
 COMP_REF_COL = 'comp_ref'
 COMP_ALT_COL = 'comp_alt'
 
 def compute_complexity_score(row, weight):
+    """
+    Computes the sequence complexity penalty of a variant encoded in a
+    dataframe row
+    :param: row (DataFrame row): row encoding the variant
+    :param: weight (float): weight associated to the sequence complexity to
+    define the penalty
+    :return: float: sequence complexity penalty
+    """
     score = weight * (1 - min(row[COMP_REF_COL], row[COMP_ALT_COL]))
     return score
 
-def add_complexity_score(df, amplicons_data, kmin, kmax, l, weight=1.0):
+def add_complexity_score(df, amplicons_data, kmin, kmax, flanking_len, weight=1.0):
+    """
+    Add in-place a sequence complexity score to a variants dataframe
+    :param: df (DataFrame): variants dataframe
+    :kmin, kmax (int): kmers values range for complexity computation
+    :param: flanking_len (int): number of bases flanking the breakpoint of the
+    variant to consider for complexity calculation
+    :param: weight (float): weight associated to the sequence complexity to
+    define the penalty
+    """
     def comp_ref_alt(row, i):
         return compute_complexity_row(row, amplicons_data, kmin, kmax, l)[i]
     df[COMP_REF_COL] = df.apply(lambda row: comp_ref_alt(row, 0), axis=1)
@@ -131,7 +177,18 @@ def add_complexity_score(df, amplicons_data, kmin, kmax, l, weight=1.0):
     )
     df.drop(columns=[COMP_REF_COL, COMP_ALT_COL], inplace=True)
 
+
 def compute_support_score(row, support_min, weight):
+    """
+    Computes the support penalty of a variant encoded in a
+    dataframe row
+    :param: row (DataFrame row): row encoding the variant
+    :param: support_min (int): base of exponent for computing the support
+    penalty
+    :param: weight (float): weight associated to the support score to
+    define the penalty
+    :return: float: support penalty
+    """
     # Penalty due to size of largest supporting cluster
     info_list = row[INFO_COL].split(';')
     for info in info_list:
@@ -142,12 +199,27 @@ def compute_support_score(row, support_min, weight):
     return  weight * score
 
 def add_support_score(df, support_min, weight=1.0):
+    """
+    Add in-place a support score to a variants dataframe
+    :param: df (DataFrame): variants dataframe
+    :param: support_min (int): base of exponent for computing the support
+    penalty
+    :param: weight (float): weight associated to the support to
+    define the penalty
+    """
     df[SUPPORT] = df.apply(
         lambda row: compute_support_score(row, support_min, weight), axis=1
     )
 
 
 def compute_overlapping_calls(df):
+    """
+    Computes a dictionary of overlapping variants and of their VAF for each
+    variant of a variants dataframe
+    :param: df (DataFrame): variants dataframe
+    :return: dict(index list(index, float)): for each variant list of the index
+    of the overlapping variants and of their VAF
+    """
     overlaps = {index: [] for index in df.index}
     opened_indels = []
     for current_index, row in df.iterrows():
@@ -181,6 +253,15 @@ def compute_overlapping_calls(df):
     return overlaps
 
 def compute_overlapping_score(df, overlaps_dict, weight):
+    """
+    Computes the overlap penalty of the variants in a variants DataFrame
+    :param: df (DataFrame): variants dataframe
+    :param: overlaps_dict dict(index list(index, float)): for each variant
+    list of the index  of the overlapping variants and of their VAF
+    :param: weight (float): weight associated to the support score to
+    define the penalty
+    Add the score in place
+    """
     for index, overlaps in overlaps_dict.items():
         if len(overlaps) == 0:
             df.at[index, OVERLAP] = 0
@@ -195,13 +276,29 @@ def compute_overlapping_score(df, overlaps_dict, weight):
             df.at[index, OVERLAP] = score
 
 def add_overlap_score(df, weight=1.0):
+    """
+    Add in-place an overlap score to a variants dataframe
+    :param: df (DataFrame): variants dataframe
+    :param: weight (float): weight associated to the support to
+    define the penalty
+    """
     overlaps = compute_overlapping_calls(df)
     compute_overlapping_score(df, overlaps, weight)
 
 def compute_confidence_score(row):
+    """
+    Computes the overall penalty for a a variant encoded in a
+    dataframe row
+    :param: row (DataFrame row): row encoding the variant
+    :return: float: penalty
+    """
     return round(row[COMPLEXITY] + row[SUPPORT] + row[OVERLAP], 3)
 
 def add_confidence_score(df):
+    """
+    Add in-place an overall penalty to a variants dataframe
+    :param: df (DataFrame): variants dataframe
+    """
     df[SCORE] = df.apply(
         lambda row: compute_confidence_score(row), axis=1
     )
