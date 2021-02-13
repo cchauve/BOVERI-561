@@ -25,8 +25,8 @@ def difference_df(df1, df2):
 def find_indel(sample, chr, pos, ref, alt, df):
     return list(df.loc[(df['sample']==sample) & (df['chr']==chr) & (df['pos']==pos) & (df['ref']==ref) & (df['alt']==alt)].index)
 
-def compare_indels(true_df, run_df_in, vaf, score, verbose=False):
-    run_df = run_df_in.loc[(run_df_in['vaf']>=vaf) & (run_df_in['score']<=score)]
+def compare_indels(true_df, run_df_in, score, verbose=False):
+    run_df = run_df_in.loc[run_df_in['score']<=score]
     index_true = list(true_df.index)
     index_run = list(run_df.index)
     index_only_true, index_only_run = difference_df(true_df, run_df)
@@ -68,7 +68,7 @@ def assess_indels(true_df, run_df, run_id):
             score = indel_run['score']
             vaf = indel_run['vaf']
             run_df_aux = run_df.loc[run_df['score']>=score]
-            nb_tp, nb_fn, nb_fp, _ = compare_indels(true_df, run_df_aux, vaf, score)
+            nb_tp, nb_fn, nb_fp, _ = compare_indels(true_df, run_df_aux, score)
             stat_str = '\t'.join([str(x) for x in [vaf, score, nb_tp, nb_fn, nb_fp]])
             result[index] = (score, nb_tp, nb_fn, nb_fp)
             NB_TP += nb_tp
