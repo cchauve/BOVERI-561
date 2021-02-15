@@ -1,132 +1,228 @@
+#!/usr/bin/env python3
+
+"""
+Analyzing pipeline calls compared to expected calls
+"""
+import argparse
 import csv
 import os
 import pandas as pd
-import sys
 
-RUN_CSV_FILE = sys.argv[1]
-ALL_INDELS_DF = pd.read_csv('data/v4MiSeq_commercial_samples_expected_indels.csv')
-ALL_INDELS_DF.rename(columns={'chromosome': 'chr'}, inplace=True)
-
-CTRL_VAF_DIFF = float(sys.argv[2])
-
-RUN_ID_LIST = []
-with open(RUN_CSV_FILE) as csvfile:
+# ------------------------------------------------------------------------------
+# Auxiliary functions
+def read_run_list(run_csv_file):
+    """
+    Extracts from a csv file a list of run IDs
+    """
+    run_id_list = []
+    with open(run_csv_file) as csvfile:
         runs_data = csv.reader(csvfile, delimiter=',')
         for row in runs_data:
-            RUN_ID_LIST.append(row[1])
+            run_id_list.append(row[1])
+    return run_id_list
 
-def difference_df(df1, df2):
-    df1_aux = df1[['sample', 'chr', 'pos', 'ref', 'alt']]
-    df2_aux = df2[['sample', 'chr', 'pos', 'ref', 'alt']]
-    df2_m_df1 = pd.concat([df2_aux, df1_aux, df1_aux]).drop_duplicates(keep=False)
-    df1_m_df2 = pd.concat([df1_aux, df2_aux, df2_aux]).drop_duplicates(keep=False)
-    return list(df1_m_df2.index), list(df2_m_df1.index)
-
-def find_indel(sample, chr, pos, ref, alt, df):
-    return list(df.loc[(df['sample']==sample) &
-                       (df['chr']==chr) &
-                       (df['pos']==pos) &
-                       (df['ref']==ref) &
-                       (df['alt']==alt)
+def find_indel(row, df):
+    """
+    Computes the index of all indels defined by sample, chr, pos, ref, alt
+    """
+    return list(df.loc[(df['sample']==row['sample']) &
+                       (df['chr']==row['chr']) &
+                       (df['pos']==row['pos']) &
+                       (df['ref']==row['ref']) &
+                       (df['alt']==row['alt'])
                        ].index)
 
-def compare_indels(true_df, run_df_in, score, verbose=False):
-    run_df = run_df_in.loc[run_df_in['score']<=score]
-    index_true = list(true_df.index)
-    index_run = list(run_df.index)
-    index_only_true, index_only_run = difference_df(true_df, run_df)
-    index_tp = [x for x in index_true if x not in index_only_true]
-    index_fn = index_only_true
-    index_fp = [x for x in index_run if x in index_only_run]
+def exclude_qmrs(df):
+    """
+    Returns a variants dataframe excluding all calls from QMRS
+    """
+    return df.loc[~df['sample'].str.startswith('QMRS')]
+
+def exclude_control_calls(df, ctrl_vaf_diff):
+    """
+    Returns a variants dataframe with all calls present in control with a close
+    VAF filtered out
+    """
+    return df.loc[df['control']>ctrl_vaf_diff]
+
+def get_run_data(run_id, expected_indels_df, ctrl_vaf_diff):
+    """
+    Returns the dataframe of expected and called indels for run run_id
+    """
+    # Reading the pipeline results
+    run_indels_file = os.path.join('results', run_id, f"{run_id}_indels.tsv")
+    called_df_aux = pd.read_csv(run_indels_file, sep='\t')
+    # Reformatting the sample column to match the true indels format
+    called_df_aux['sample'] = called_df_aux.apply(
+        lambda row: row['sample'].split('_S')[0], axis=1
+    )
+    # Excluding the QMRS sample and rounding all numerical values
+    run_indels_df_1 = exclude_qmrs(called_df_aux).round(3)
+    # Excluding indels seen in the control samples with a close VAF
+    run_called_indels_df = exclude_control_calls(run_indels_df_1, ctrl_vaf_diff)
+    # Reading the expected (true) indels
+    df_aux = expected_indels_df
+    run_expected_indels_df = df_aux.loc[df_aux['run_id']==run_id]
+    return run_expected_indels_df, run_called_indels_df
+
+def diff_df(df1, df2, columns=['sample', 'chr', 'pos', 'ref', 'alt']):
+    """
+    Computes df1-df2 and df2-df1 on a set of common columns
+    """
+    df1_aux = df1[columns]
+    df2_aux = df2[columns]
+    df2_m_df1 = pd.concat(
+        [df2_aux, df1_aux, df1_aux]
+    ).drop_duplicates(keep=False)
+    df1_m_df2 = pd.concat(
+        [df1_aux, df2_aux, df2_aux]
+    ).drop_duplicates(keep=False)
+    return list(df1_m_df2.index), list(df2_m_df1.index)
+
+def compare_indels(expected_df, called_df_in, score, verbose=False):
+    """
+    Computes the index of true positive, false positive, false negative
+    If verbose, prints stats about TP, FN, FP and prints all FN and FP indels.
+    Return index of TP and FP indels in called_df_in and FN indels in
+    expected_df
+    """
+    called_df = called_df_in.loc[called_df_in['score']<=score]
+    expected_index = list(expected_df.index)
+    called_index = list(called_df.index)
+    expected_only_index, called_only_index = diff_df(expected_df, called_df)
+    index_tp = [x for x in called_index if x not in called_only_index]
+    index_fn = expected_only_index
+    index_fp = [x for x in called_index if x in called_only_index]
     nb_tp, nb_fn, nb_fp = len(index_tp), len(index_fn), len(index_fp)
     if verbose:
-        stats = f"TP:{nb_tp}\tFN:{nb_fn}\tFP:{nb_fp}\tSPEC:{specificity}"
+        stats = f"TP:{nb_tp}\tFN:{nb_fn}\tFP:{nb_fp}"
         print(f"\tscore_min:{score}\t{stats}")
-        for _, row in true_df[true_df.index.isin(index_fn)].iterrows():
-            print(f"\tFN\t{row['sample']}\t{row['chr']}\t{row['pos']}\t{row['ref']}\t{row['alt']}")
-        for _, row in run_df[run_df.index.isin(index_fp)].iterrows():
+        for _, row in expected_df[expected_df.index.isin(index_fn)].iterrows():
             out_str = (
-                f"\tFP\t{row['sample']}\t{row['chr']}\t{row['pos']}\t{row['ref']}\t{row['alt']}\t"
-                f"{row['vaf']}\t{row['score']}\t{row['complexity']}\t"
-                f"{row['support']}\t{row['overlap']}\t{row['control']}\t"
-                f"{row['repeats']}"
+                f"\tFN\t{row['sample']}\t{row['chr']}\t{row['pos']}"
+                f"\t{row['ref']}\t{row['alt']}"
             )
             print(out_str)
-    fp_df = run_df.loc[index_fp]
+        for _, row in called_df[called_df.index.isin(index_fp)].iterrows():
+            out_str = (
+                f"\tFP\t{row['sample']}\t{row['chr']}\t{row['pos']}"
+                f"\t{row['ref']}\t{row['alt']}"
+                f"\t{row['vaf']}\t{row['score']}\t{row['complexity']}"
+                f"\t{row['support']}\t{row['overlap']}\t{row['control']}"
+                f"\t{row['repeats']}"
+            )
+            print(out_str)
+    return index_tp, index_fn, index_fp
+
+def print_stats(called_indels_df, index_tp, index_fn, index_fp, prefix):
+    """
+    Creates a string with all statistics for a set of TP, FN and FP
+    """
+    fp_df = called_indels_df.loc[index_fp]
+    tp_df = called_indels_df.loc[index_tp]
+    nb_tp, nb_fn, nb_fp = len(index_tp), len(index_fn), len(index_fp)
+    # FP statistics
     fp_mean_vaf = round(fp_df['vaf'].mean(), 2)
     fp_mean_score = round(fp_df['score'].mean(), 2)
     nb_fp_1 = len(fp_df.loc[fp_df['vaf']<1.0].index)
     nb_fp_05 = len(fp_df.loc[fp_df['vaf']<0.5].index)
-    index_tp = [x for x in index_run if x not in index_only_run]
-    tp_df = run_df.loc[index_tp]
+    # TP statistics
     tp_mean_vaf = round(tp_df['vaf'].mean(), 2)
     tp_mean_score = round(tp_df['score'].mean(), 2)
     nb_tp_1 = len(tp_df.loc[tp_df['vaf']<1.0].index)
     nb_tp_05 = len(tp_df.loc[tp_df['vaf']<0.5].index)
-    return nb_tp, nb_fn, nb_fp, fp_mean_vaf, fp_mean_score, nb_fp_1, nb_fp_05, tp_mean_vaf, tp_mean_score, nb_tp_1, nb_tp_05
+    # Printing
+    stat_fields = prefix
+    stat_fields += [nb_tp, tp_mean_vaf, tp_mean_score, nb_tp_1, nb_tp_05]
+    stat_fields += [nb_fn]
+    stat_fields += [nb_fp, fp_mean_vaf, fp_mean_score, nb_fp_1, nb_fp_05]
+    stat_str = '\n' + '\t'.join([str(x) for x in stat_fields])
+    return stat_str
 
+# ------------------------------------------------------------------------------
+if __name__ == "__main__":
+    # Analysis parameters
+    # Input file
+    ARGS_RUNS_FILE = ['runs_csv_file', None, 'Runs CSV file']
+    # Max difference of VAF with control to filter out an indel call
+    ARGS_CTRL_VAF_DIFF = ['-c', '--ctrl_vaf_diff', 'control VAF difference']
+    parser = argparse.ArgumentParser(description='Indels testing: analyze')
+    parser.add_argument(ARGS_RUNS_FILE[0], type=str, help=ARGS_RUNS_FILE[2])
+    parser.add_argument(ARGS_CTRL_VAF_DIFF[0],
+                        ARGS_CTRL_VAF_DIFF[1],
+                        type=float,
+                        default=5.0,
+                        help=ARGS_CTRL_VAF_DIFF[2])
+    args = parser.parse_args()
 
-def assess_indels(true_df, run_df, run_id, out_file):
-    result = {}
-    NB_TP, NB_FN, NB_FP = 0, 0, 0
-    for index, row in true_df.iterrows():
-        indel_info = [run_id, row['sample'], row['chr'], row['pos'], row['ref'], row['alt']]
-        indel_str = '\t'.join([str(x) for x in indel_info])
-        index_run = find_indel(row['sample'], row['chr'], row['pos'], row['ref'], row['alt'], run_df)
-        if len(index_run) == 0:
-            result[index] = None
-            stat_str = f"nan\tnan\tnan\tnan\tnan\tnan\tnan\tnan\tnan\tnan\tnan\tnan\tnan"
-        else:
-            indel_run = run_df.loc[index_run[0]]
-            score = indel_run['score']
-            vaf = indel_run['vaf']
-            nb_tp, nb_fn, nb_fp, fp_vaf, fp_score, nb_fp_1, nb_fp_05, tp_vaf, tp_score, nb_tp_1, nb_tp_05 = compare_indels(true_df, run_df, score)
-            stat_str = '\t'.join([str(x) for x in [vaf, score, nb_tp, tp_vaf, tp_score, nb_tp_1, nb_tp_05, nb_fn, nb_fp, fp_vaf, fp_score, nb_fp_1, nb_fp_05]])
-            result[index] = (score, nb_tp, nb_fn, nb_fp)
-            NB_TP += nb_tp
-            NB_FN += nb_fn
-            NB_FP += nb_fp
-        out_file.write(f"\n{indel_str}\t{stat_str}")
-    return NB_TP, NB_FN, NB_FP
-
-# Analysis: expected indels by minimum score to call them
-_, DATASET_NAME = os.path.split(RUN_CSV_FILE)
-OUT_FILE_1 = os.path.join('results', DATASET_NAME.replace('.csv', '_out_1.tsv'))
-OUT_1 = open(OUT_FILE_1, 'w')
-header = 'run_id\tsample\tchr\tpos\tref\talt\tvaf\tscore\tTP:nb\tTP:mean_vaf\t'
-header += 'TP:mean_score\tTP:nb:vaf<1\tTP:nb:vaf<0.5\tFN:nb\tFP:nb\tFP:mean_vaf\t'
-header += 'FP:mean_score\tFP:nb:vaf<1\tFP:nb:vaf<0.5'
-OUT_1.write(header)
-for RUN_ID in RUN_ID_LIST:
-    RUN_INDELS_FILE = os.path.join('results', RUN_ID, f"{RUN_ID}_indels.tsv")
-    RUN_INDELS_DF_AUX = pd.read_csv(RUN_INDELS_FILE, sep='\t')
-    RUN_INDELS_DF_AUX['sample'] = RUN_INDELS_DF_AUX.apply(
-        lambda row: row['sample'].split('_S')[0], axis=1
+    # Input: Expected indels dataframe
+    ALL_EXPECTED_INDELS_DF = pd.read_csv(
+        'data/v4MiSeq_commercial_samples_expected_indels.csv'
     )
-    RUN_INDELS_DF = RUN_INDELS_DF_AUX[~RUN_INDELS_DF_AUX['sample'].str.startswith('QMRS')].round(3)
-    TRUE_INDELS_DF = ALL_INDELS_DF.loc[ALL_INDELS_DF['run_id']==RUN_ID]
-    RUN_INDELS_DF_CTRL = RUN_INDELS_DF.loc[RUN_INDELS_DF['control']>CTRL_VAF_DIFF]
-
-    _, _, _ = assess_indels(TRUE_INDELS_DF, RUN_INDELS_DF_CTRL, RUN_ID, OUT_1)
-OUT_1.close()
-
-# Analysis: statistics by minimum score
-OUT_FILE_2 = os.path.join('results', DATASET_NAME.replace('.csv', '_out_2.tsv'))
-OUT_2 = open(OUT_FILE_2, 'w')
-header = 'run_id\tmax_score\tTP:nb\tTP:mean_vaf\tTP:mean_score\tTP:nb:vaf<1\tTP:nb:vaf<0.5\t'
-header += 'FN:nb\tFP:nb\tFP:mean_vaf\tFP:mean_score\tFP:nb:vaf<1\tFP:nb:vaf<0.5'
-OUT_2.write(header)
-for RUN_ID in RUN_ID_LIST:
-    RUN_INDELS_FILE = os.path.join('results', RUN_ID, f"{RUN_ID}_indels.tsv")
-    RUN_INDELS_DF_AUX = pd.read_csv(RUN_INDELS_FILE, sep='\t')
-    RUN_INDELS_DF_AUX['sample'] = RUN_INDELS_DF_AUX.apply(
-        lambda row: row['sample'].split('_S')[0], axis=1
+    ALL_EXPECTED_INDELS_DF.rename(columns={'chromosome': 'chr'}, inplace=True)
+    # Input: Run IDs list
+    RUN_ID_LIST = read_run_list(args.runs_csv_file)
+    # Print: Stats shown in analysis
+    HEADER_STATS = (
+        f"TP:nb\tTP:mean_vaf\tTP:mean_score\tTP:nb:vaf<1\tTP:nb:vaf<0.5\t"
+        f"FN:nb\t"
+        f"FP:nb\tFP:mean_vaf\tFP:mean_score\tFP:nb:vaf<1\tFP:nb:vaf<0.5"
     )
-    RUN_INDELS_DF = RUN_INDELS_DF_AUX[~RUN_INDELS_DF_AUX['sample'].str.startswith('QMRS')].round(3)
-    TRUE_INDELS_DF = ALL_INDELS_DF.loc[ALL_INDELS_DF['run_id']==RUN_ID]
-    RUN_INDELS_DF_CTRL = RUN_INDELS_DF.loc[RUN_INDELS_DF['control']>CTRL_VAF_DIFF]
-    for score in [0.25, 0.5, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5]:
-        nb_tp, nb_fn, nb_fp, fp_vaf, fp_score, nb_fp_1, nb_fp_05, tp_vaf, tp_score, nb_tp_1, nb_tp_05 = compare_indels(TRUE_INDELS_DF, RUN_INDELS_DF_CTRL, score)
-        stat_str = '\n' + '\t'.join([str(x) for x in [RUN_ID, score, nb_tp, tp_vaf, tp_score, nb_tp_1, nb_tp_05, nb_fn, nb_fp, fp_vaf, fp_score, nb_fp_1, nb_fp_05]])
-        OUT_2.write(stat_str)
-OUT_2.close()
+    # Analysis: Features defining an indel
+    INDEL_FEATURES = ['sample', 'chr', 'pos', 'ref', 'alt']
+
+    # Analysis 1: expected indels by minimum score to call them: for each
+    # expected indel, print statistics about indels called with a score at
+    # least as good
+    _, DATASET_NAME = os.path.split(args.runs_csv_file)
+    OUT_FILE_1 = os.path.join(
+        'results', DATASET_NAME.replace('.csv', '_out_1.tsv')
+    )
+    OUT_1 = open(OUT_FILE_1, 'w')
+    header = f"run_id\tsample\tchr\tpos\tref\talt\tvaf\tscore\t{HEADER_STATS}"
+    OUT_1.write(header)
+    for RUN_ID in RUN_ID_LIST:
+        expected_indels_df, called_indels_df = get_run_data(
+            RUN_ID, ALL_EXPECTED_INDELS_DF, args.ctrl_vaf_diff
+        )
+        # Loop on all expected indels
+        for index, row in expected_indels_df.iterrows():
+            indel_info = [RUN_ID] + [row[x] for x in INDEL_FEATURES]
+            indel_str = '\t'.join([str(x) for x in indel_info])
+            called_index = find_indel(row, called_indels_df)
+            if len(called_index) == 0:
+                stat_str = '\t'.join(['nan' for i in range(11)])
+            else:
+                indel_called = called_indels_df.loc[called_index[0]]
+                score, vaf = indel_called['score'], indel_called['vaf']
+                index_tp, index_fn, index_fp = compare_indels(
+                    expected_indels_df, called_indels_df, score
+                )
+                stat_str = print_stats(
+                    called_indels_df, index_tp, index_fn, index_fp, [vaf, score]
+                )
+            OUT_1.write(f"\n{indel_str}\t{stat_str}")
+    OUT_1.close()
+
+    # Analysis 2: statistics by minimum score
+    # For a range of scores we print statistics per run about indels called with
+    # this score
+    OUT_FILE_2 = os.path.join(
+        'results', DATASET_NAME.replace('.csv', '_out_2.tsv')
+    )
+    OUT_2 = open(OUT_FILE_2, 'w')
+    header = f"run_id\tmax_score\tf{HEADER_STATS}"
+    OUT_2.write(header)
+    for RUN_ID in RUN_ID_LIST:
+        expected_indels_df, called_indels_df = get_run_data(
+            RUN_ID, ALL_EXPECTED_INDELS_DF, args.ctrl_vaf_diff
+        )
+        for score in [0.25, 0.5, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5]:
+            index_tp, index_fn, index_fp = compare_indels(
+                expected_indels_df, called_indels_df, score
+            )
+            stat_str = print_stats(
+                called_indels_df, index_tp, index_fn, index_fp, [RUN_ID, score]
+            )
+            OUT_2.write(stat_str)
+    OUT_2.close()

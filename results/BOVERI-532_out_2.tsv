@@ -1,4 +1,4 @@
-run_id	max_score	TP:nb	TP:mean_vaf	TP:mean_score	TP:nb:vaf<1	TP:nb:vaf<0.5	FN:nb	FP:nb	FP:mean_vaf	FP:mean_score	FP:nb:vaf<1	FP:nb:vaf<0.5
+run_id	max_score	fTP:nb	TP:mean_vaf	TP:mean_score	TP:nb:vaf<1	TP:nb:vaf<0.5	FN:nb	FP:nb	FP:mean_vaf	FP:mean_score	FP:nb:vaf<1	FP:nb:vaf<0.5
 181128_M02558_0267_000000000-C5GNB	0.25	0	nan	nan	0	0	10	9	0.04	0.16	9	9
 181128_M02558_0267_000000000-C5GNB	0.5	5	2.8	0.4	2	1	5	103	0.04	0.36	103	103
 181128_M02558_0267_000000000-C5GNB	1.0	7	2.13	0.5	4	2	3	185	0.03	0.55	185	185
