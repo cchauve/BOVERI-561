@@ -3,3 +3,4 @@
 > python bin/analyze_variants.py data/BOVERI-532.csv a1
 > python bin/analyze_variants.py data/BOVERI-532.csv a2
 > python bin/analyze_variants.py data/BOVERI-532.csv fn
+> sort -k 8 -n -o results/BOVERI-532_out_3.tsv results/BOVERI-532_out_3.tsv
