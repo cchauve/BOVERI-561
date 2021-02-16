@@ -1,6 +1,8 @@
 # BOVERI-561
 Extract indel calls from commercial samples.
 
+
+## Introduction
 The list of commercial samples run IDs is in BOVERI-532. The corresponding input
 file is in data/BOVERI-532.csv.
 
@@ -81,3 +83,25 @@ sequencing data. If the first field (found) is nan, then no such sequence does
 exist showing strong (but not definitive) evidence the indel is not present in
 the sequenced reads. Otherwise the amplicon and cluster ID where such a sequence
 can be found is shown.
+
+# Analysis of specific cases
+
+The indel
+210121_M02558_0437_000000000-JGGD9:DNA-26674-CG001Qv42Run269-13:chr7:55242464:AGGAATTAAGAGAAGC:A
+has an expected VAF of 2.0 but is not called.
+
+Instead, the called indel is described below (supported by 60 identical reads)
+...CTATCAAGGAATTAAGAGAAGCAACATCTCCGAAAGCCAACAAGGAAATCCTCGATGTGAGTTTCTGCTTTGCTGTGTGGG
+...CTATCAAG---------------ACATCTCCGAAAGCCAACAAGGAAATCCTCGATGTGAGTTTCTGCTTTGCTGTGTGGG
+
+To compare, the same indel is found in sample 210122_M02558_0438_000000000-JFLRB:DNA-26674-CG001Qv42Run270-20
+with expected VAF 2% and the corresponding alignment is
+...CTATCAAGGAATTAAGAGAAGCAACATCTCCGAAAGCCAACAAGGAAATCCTCGATGTGAGTTTCTGCTTTGCTGTGTGGG
+...CTATCAA---------------AACATCTCCGAAAGCCAACAAGGAAATCCTCGATGTGAGTTTCTGCTTTGCTGTGTGGG
+
+So the reason the indel is not called is thus a G instead of a A that shifts the
+indel call. This G base is not linked to an ambiguous position in any read for
+this sample. One possible explanation could be that in the reads harbouring the
+deletion, there is an A-rich region including a 4-bases A homopolymer and there
+could have been an early PCR error. But the sequencing data totally supports
+the called indel and does not show any evidence for the expected indel.
