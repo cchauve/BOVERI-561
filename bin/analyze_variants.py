@@ -214,7 +214,7 @@ def print_stats(called_indels_df, index_tp, index_fn, index_fp, prefix):
     stat_fields += [nb_tp, tp_mean_vaf, tp_mean_score, nb_tp_1, nb_tp_05]
     stat_fields += [nb_fn]
     stat_fields += [nb_fp, fp_mean_vaf, fp_mean_score, nb_fp_1, nb_fp_05]
-    stat_str = '\n' + '\t'.join([str(x) for x in stat_fields])
+    stat_str = '\t'.join([str(x) for x in stat_fields])
     return stat_str
 
 # ------------------------------------------------------------------------------
@@ -232,7 +232,10 @@ def run_cmd_a1(dataset_name, run_id_list, ctrl_vaf_diff):
     """
     out_file_name = dataset_name.replace('.csv', '_out_1.tsv')
     out_file = open(os.path.join('results', out_file_name), 'w')
-    header = f"run_id\tsample\tchr\tpos\tref\talt\tvaf\tscore\t{HEADER_STATS}"
+    header = (
+        f"run_id\tsample\tchr\tpos\tref\talt\t"
+        f"vaf\tscore\tcomplexity\tsupport\toverlap\t{HEADER_STATS}"
+    )
     out_file.write(header)
     for run_id in run_id_list:
         expected_indels_df, called_indels_df = get_run_data(
@@ -248,11 +251,15 @@ def run_cmd_a1(dataset_name, run_id_list, ctrl_vaf_diff):
             else:
                 indel_called = called_indels_df.loc[called_index[0]]
                 score, vaf = indel_called['score'], indel_called['vaf']
+                complexity = indel_called['complexity']
+                support = indel_called['support']
+                overlap = indel_called['overlap']
                 index_tp, index_fn, index_fp = compare_indels(
                     expected_indels_df, called_indels_df, score
                 )
                 stat_str = print_stats(
-                    called_indels_df, index_tp, index_fn, index_fp, [vaf, score]
+                    called_indels_df, index_tp, index_fn, index_fp,
+                    [vaf, score, complexity, support, overlap]
                 )
             out_file.write(f"\n{indel_str}\t{stat_str}")
     out_file.close()
@@ -277,7 +284,7 @@ def run_cmd_a2(dataset_name, run_id_list, ctrl_vaf_diff):
             stat_str = print_stats(
                 called_indels_df, index_tp, index_fn, index_fp, [run_id, score]
             )
-            out_file.write(stat_str)
+            out_file.write(f"\n{stat_str}")
     out_file.close()
 
 def run_cmd_fn(run_id_list, ctrl_vaf_diff):
