@@ -49,16 +49,18 @@ Each line of this file corresponds to one expected indel, as indicated by the
 vendor.
 It contains the information about the sample expected to have this indel and the
 indel itself, complemented by information about the indel as found by the
-indels calling pipeline (na means the indel was not found):
-- vaf: VAF of the indel as given by he pipeline
+indels calling pipeline (nan means the indel was not found):
+- vaf: VAF of the indel as given by the pipeline
+- exp_vaf: expected VAF of the expected indel
 - score: penalty P associated to the indel call (0 means no penalty, very high
   confidence call)
 - TP/FN/FP: number of true positive (expected indels found), false negative
   (missed expected indels) and false positive if one would call all indels
   with a score at most P.
-- for the TP and FP categories, the file shows the average VAF and score of the
-  corresponding indels and the number of indels with a VAF < 1% and the number
-  of indels with a VAF < 0.5%.
+- for the TP, FN and FP categories, the file shows the average VAF and score of
+  the corresponding indels and the number of indels with a VAF < 1% and the
+  number of indels with a VAF < 0.5%. For FN the mean score is not shown (NA)
+  but the number of expected FN indels with VAF >= 1% is shown.
 
 Altogether, out of 726 expected indels, 156 are not found. A further analysis
 would be to discard the ones from the wild-type samples and to see if they are
@@ -72,3 +74,10 @@ as a function of the maximum score to accept a call. Here again we can see that
 the number of FPs is large but FPs are mostly indels of very low VAF. Again the
 large number of FNs raise the question to know if they are actually present in
 the sequencing data.
+
+The file results/BOVERI-532_out_3.tsv shows for every FN expected indel if there
+was a cluster consensus sequence that shows the indel could be present in the
+sequencing data. If the first field (found) is nan, then no such sequence does
+exist showing strong (but not definitive) evidence the indel is not present in
+the sequenced reads. Otherwise the amplicon and cluster ID where such a sequence
+can be found is shown.

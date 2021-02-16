@@ -1,5 +1,5 @@
-> python bin/extract_files.py data/BOVERI-532.csv 
-> python bin/dump_variants.py data/BOVERI-532.csv 
+> python bin/extract_files.py data/BOVERI-532.csv
+> python bin/dump_variants.py data/BOVERI-532.csv
 > python bin/analyze_variants.py data/BOVERI-532.csv a1
 > python bin/analyze_variants.py data/BOVERI-532.csv a2
-> python bin/analyze_variants.py data/BOVERI-532.csv fn > results/BOVERI-532_found_FN.txt
+> python bin/analyze_variants.py data/BOVERI-532.csv fn

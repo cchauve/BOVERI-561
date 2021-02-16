@@ -12,7 +12,8 @@ import pandas as pd
 # Global input
 # Input: Expected indels dataframe
 ALL_EXPECTED_INDELS_DF = pd.read_csv(
-    'data/v4MiSeq_commercial_samples_expected_indels.csv'
+    'data/v4MiSeq_commercial_samples_expected_indels_ExpectedVAFs.tsv',
+    sep='\t'
 )
 ALL_EXPECTED_INDELS_DF.rename(columns={'chromosome': 'chr'}, inplace=True)
 # Input: amplicons manifest
@@ -23,7 +24,8 @@ MANIFEST_DICT = {}
 for _, row in MANIFEST_DF.iterrows():
     MANIFEST_DICT[row['Amplicon_ID']] = row['Amplicon']
 # Analysis: Features defining an indel
-INDEL_FEATURES = ['sample', 'chr', 'pos', 'ref', 'alt']
+INDEL_FEATURES_EXPVAF = ['sample', 'chr', 'pos', 'ref', 'alt', 'exp_vaf']
+INDEL_FEATURES_NOVAF = ['sample', 'chr', 'pos', 'ref', 'alt']
 
 # ------------------------------------------------------------------------------
 # Auxiliary functions
@@ -79,12 +81,14 @@ def get_cluster_consensus_sequences(clusters_file):
             cluster_to_read = False
     return clusters_sequences
 
-def check_indel(row, manifest_dict, amp_pos, run_id):
+def check_indel(row, manifest_dict, amp_pos, run_id, out_file):
     """
     Returns True if the variant described in row matches with some cluster
     consensus sequence.
     """
     sample = f"{row['sample']}_S{row['sample'].split('-')[-1]}"
+    indel_info = [run_id] + [row[x] for x in INDEL_FEATURES_EXPVAF]
+    indel_str = '\t'.join([str(x) for x in indel_info])
     for amplicon_id, pos in amp_pos.items():
         clusters_file_name = f"{sample}_{amplicon_id}_clusters.txt"
         clusters_file_path = os.path.join('results', run_id, clusters_file_name)
@@ -96,18 +100,12 @@ def check_indel(row, manifest_dict, amp_pos, run_id):
             v_seq = f"{amp_seq[:pos + 1]}{amp_seq[pos + len(row['ref']):]}"
         for cluster_id, c_seq in clusters_sequences.items():
             len_diff = abs(len(c_seq) - len(v_seq))
-            if len_diff > 2:
-                if len(c_seq) == len(v_seq):
-                    return True
-            else:
-                if c_seq == v_seq:
-                    indel_info = [run_id] + [row[x] for x in INDEL_FEATURES]
-                    indel_str = '\t'.join([str(x) for x in indel_info])
-                    print(f"FN found: {indel_str}\t{amplicon_id}\t{cluster_id}")
-                    print(f"amp\t{amp_seq}")
-                    print(f"v  \t{v_seq}")
-                    print(f"c  \t{c_seq}")
-                    return True
+            test_1 = len_diff > 2 and len(c_seq) == len(v_seq)
+            test_2 = len_diff <= 2 and c_seq == v_seq
+            if test_1 or test_2:
+                out_file.write(f"\n{amplicon_id}_{cluster_id}\t{indel_str}")
+                return True
+    out_file.write(f"\nnan\t{indel_str}")
     return False
 
 def exclude_qmrs(df):
@@ -178,7 +176,7 @@ def compare_indels(expected_df, called_df_in, score, verbose=False):
         for _, row in expected_df[expected_df.index.isin(index_fn)].iterrows():
             out_str = (
                 f"\tFN\t{row['sample']}\t{row['chr']}\t{row['pos']}"
-                f"\t{row['ref']}\t{row['alt']}"
+                f"\t{row['ref']}\t{row['alt']}\t{row['exp_vaf']}"
             )
             print(out_str)
         for _, row in called_df[called_df.index.isin(index_fp)].iterrows():
@@ -192,12 +190,15 @@ def compare_indels(expected_df, called_df_in, score, verbose=False):
             print(out_str)
     return index_tp, index_fn, index_fp
 
-def print_stats(called_indels_df, index_tp, index_fn, index_fp, prefix):
+def print_stats(
+    called_indels_df, expected_indels_df, index_tp, index_fn, index_fp, prefix
+):
     """
     Creates a string with all statistics for a set of TP, FN and FP
     """
     fp_df = called_indels_df.loc[index_fp]
     tp_df = called_indels_df.loc[index_tp]
+    fn_df = expected_indels_df.loc[index_fn]
     nb_tp, nb_fn, nb_fp = len(index_tp), len(index_fn), len(index_fp)
     # FP statistics
     fp_mean_vaf = round(fp_df['vaf'].mean(), 2)
@@ -209,10 +210,15 @@ def print_stats(called_indels_df, index_tp, index_fn, index_fp, prefix):
     tp_mean_score = round(tp_df['score'].mean(), 2)
     nb_tp_1 = len(tp_df.loc[tp_df['vaf']<1.0].index)
     nb_tp_05 = len(tp_df.loc[tp_df['vaf']<0.5].index)
+    # FN statistics
+    fn_mean_vaf = round(fn_df['exp_vaf'].mean(), 2)
+    nb_fn_100 = len(fn_df.loc[fn_df['exp_vaf']>=1.0].index)
+    nb_fn_1 = len(fn_df.loc[fn_df['exp_vaf']<1.0].index)
+    nb_fn_05 = len(fn_df.loc[fn_df['exp_vaf']<0.5].index)
     # Printing
     stat_fields = prefix
     stat_fields += [nb_tp, tp_mean_vaf, tp_mean_score, nb_tp_1, nb_tp_05]
-    stat_fields += [nb_fn]
+    stat_fields += [nb_fn, fn_mean_vaf, nb_fn_100, nb_fn_1, nb_fn_05]
     stat_fields += [nb_fp, fp_mean_vaf, fp_mean_score, nb_fp_1, nb_fp_05]
     stat_str = '\t'.join([str(x) for x in stat_fields])
     return stat_str
@@ -220,7 +226,7 @@ def print_stats(called_indels_df, index_tp, index_fn, index_fp, prefix):
 # ------------------------------------------------------------------------------
 HEADER_STATS = (
     f"TP:nb\tTP:mean_vaf\tTP:mean_score\tTP:nb:vaf<1\tTP:nb:vaf<0.5\t"
-    f"FN:nb\t"
+    f"FN:nb\tFN:mean_vaf\tFN:nb:vaf>=1\tFN:nb:vaf<1\tFN:nb:vaf<0.5\t"
     f"FP:nb\tFP:mean_vaf\tFP:mean_score\tFP:nb:vaf<1\tFP:nb:vaf<0.5"
 )
 
@@ -228,13 +234,13 @@ def run_cmd_a1(dataset_name, run_id_list, ctrl_vaf_diff):
     """
     Analysis 1: expected indels by minimum score to call them: for each
     expected indel, print statistics about indels called with a score at
-    least as good
+    least as good.
     """
     out_file_name = dataset_name.replace('.csv', '_out_1.tsv')
     out_file = open(os.path.join('results', out_file_name), 'w')
     header = (
         f"run_id\tsample\tchr\tpos\tref\talt\t"
-        f"vaf\tscore\tcomplexity\tsupport\toverlap\t{HEADER_STATS}"
+        f"vaf\texp_vaf\tscore\tcomplexity\tsupport\toverlap\t{HEADER_STATS}"
     )
     out_file.write(header)
     for run_id in run_id_list:
@@ -243,14 +249,15 @@ def run_cmd_a1(dataset_name, run_id_list, ctrl_vaf_diff):
         )
         # loop on all expected indels
         for index, row in expected_indels_df.iterrows():
-            indel_info = [run_id] + [row[x] for x in INDEL_FEATURES]
+            indel_info = [run_id] + [row[x] for x in INDEL_FEATURES_NOVAF]
             indel_str = '\t'.join([str(x) for x in indel_info])
             called_index = find_indel(row, called_indels_df)
             if len(called_index) == 0:
                 stat_str = '\t'.join(['nan' for i in range(11)])
             else:
                 indel_called = called_indels_df.loc[called_index[0]]
-                score, vaf = indel_called['score'], indel_called['vaf']
+                score = indel_called['score']
+                vaf, exp_vaf = indel_called['vaf'], row['exp_vaf']
                 complexity = indel_called['complexity']
                 support = indel_called['support']
                 overlap = indel_called['overlap']
@@ -258,8 +265,9 @@ def run_cmd_a1(dataset_name, run_id_list, ctrl_vaf_diff):
                     expected_indels_df, called_indels_df, score
                 )
                 stat_str = print_stats(
-                    called_indels_df, index_tp, index_fn, index_fp,
-                    [vaf, score, complexity, support, overlap]
+                    called_indels_df, expected_indels_df,
+                    index_tp, index_fn, index_fp,
+                    [vaf, exp_vaf, score, complexity, support, overlap]
                 )
             out_file.write(f"\n{indel_str}\t{stat_str}")
     out_file.close()
@@ -282,21 +290,27 @@ def run_cmd_a2(dataset_name, run_id_list, ctrl_vaf_diff):
                 expected_indels_df, called_indels_df, score
             )
             stat_str = print_stats(
-                called_indels_df, index_tp, index_fn, index_fp, [run_id, score]
+                called_indels_df, expected_indels_df,
+                index_tp, index_fn, index_fp,
+                [run_id, score]
             )
             out_file.write(f"\n{stat_str}")
     out_file.close()
 
-def run_cmd_fn(run_id_list, ctrl_vaf_diff):
+def run_cmd_fn(dataset_name, run_id_list, ctrl_vaf_diff):
     """
-    Checking if FP are present in cluster sequences
+    Checking if FN are present in cluster sequences
     """
+    out_file_name = dataset_name.replace('.csv', '_out_3.tsv')
+    out_file = open(os.path.join('results', out_file_name), 'w')
+    header = '\t'.join(INDEL_FEATURES_EXPVAF)
+    out_file.write(f"found\t{header}")
     for run_id in run_id_list:
         expected_indels_df, called_indels_df = get_run_data(
             run_id, ALL_EXPECTED_INDELS_DF, ctrl_vaf_diff
         )
         for index, row in expected_indels_df.iterrows():
-            indel_info = [run_id] + [row[x] for x in INDEL_FEATURES]
+            indel_info = [run_id] + [row[x] for x in INDEL_FEATURES_EXPVAF]
             indel_str = '\t'.join([str(x) for x in indel_info])
             called_index = find_indel(row, called_indels_df)
             #if len(called_index) > 0 and not indel_present:
@@ -304,9 +318,9 @@ def run_cmd_fn(run_id_list, ctrl_vaf_diff):
             if len(called_index) == 0:
                 amp_pos = find_amplicon_coordinates(row, MANIFEST_DF)
                 indel_present = check_indel(
-                    row,  MANIFEST_DICT, amp_pos, run_id
+                    row,  MANIFEST_DICT, amp_pos, run_id, out_file
                 )
-
+    out_file.close()
 
 # ------------------------------------------------------------------------------
 if __name__ == "__main__":
@@ -336,4 +350,4 @@ if __name__ == "__main__":
     elif args.cmd == 'a2':
         run_cmd_a2(dataset_name, run_id_list, args.ctrl_vaf_diff)
     elif args.cmd == 'fn':
-        run_cmd_fn(run_id_list, args.ctrl_vaf_diff)
+        run_cmd_fn(dataset_name, run_id_list, args.ctrl_vaf_diff)
