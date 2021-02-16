@@ -169,7 +169,9 @@ def add_complexity_score(df, amplicons_data, kmin, kmax, flanking_len, weight=1.
     define the penalty
     """
     def comp_ref_alt(row, i):
-        return compute_complexity_row(row, amplicons_data, kmin, kmax, l)[i]
+        return compute_complexity_row(
+            row, amplicons_data, kmin, kmax, flanking_len
+        )[i]
     df[COMP_REF_COL] = df.apply(lambda row: comp_ref_alt(row, 0), axis=1)
     df[COMP_ALT_COL] = df.apply(lambda row: comp_ref_alt(row, 1), axis=1)
     df[COMPLEXITY] = df.apply(

@@ -77,6 +77,7 @@ SUPP_MIN = 10 # Min support for support score
 
 # Extension for VCF files with scores computed
 FILTERED_INDELS_VCF_EXT = '_indels_filtered'
+MANIFEST_V4_FILE = 'CG001v4.0_Amplicon_Manifest_Panel4.0.3_20181101.tsv'
 
 if __name__ == "__main__":
 
@@ -88,7 +89,7 @@ if __name__ == "__main__":
     parser.add_argument(ARGS_MANIFEST[0],
                         ARGS_MANIFEST[1],
                         type=str,
-                        default='CG001v4.0_Amplicon_Manifest_Panel4.0.3_20181101.tsv',
+                        default=MANIFEST_V4_FILE,
                         help=ARGS_MANIFEST[2])
     args = parser.parse_args()
 
@@ -111,7 +112,9 @@ if __name__ == "__main__":
         amplicon_seq = manifest.get_amplicon(amplicon_id).get_seq()
         clusters_file = clusters_txt_file(parameters, sample_id, amplicon_id)
         clusters = ClusterReadsSet.from_file(None, clusters_file)
-        alignments_file = alignments_txt_file(parameters, sample_id, amplicon_id)
+        alignments_file = alignments_txt_file(
+            parameters, sample_id, amplicon_id
+        )
         alignments = AlignmentsSet.from_file(None, alignments_file)
         graph_file = variants_graph_txt_file(parameters, sample_id, amplicon_id)
         graph = VariantsGraph.from_file(None, graph_file)
@@ -161,7 +164,7 @@ if __name__ == "__main__":
             info_dict[COMPLEXITY] = row[COMPLEXITY]
             info_dict[SUPPORT] = row[SUPPORT]
             info_dict[OVERLAP] = row[OVERLAP]
-            info_str = ';'.join([f"{key}={value}" for key, value in info_dict.items()])
+            info_str = ';'.join([f"{k}={v}" for k, v in info_dict.items()])
             return info_str
 
         # Creating lists of all indels from the variants graph
@@ -178,8 +181,9 @@ if __name__ == "__main__":
         aggregated_indels_list_1 = aggregate_variants(in_indels_list)
         # Extra features default values
         score_dict = {
-            CONTROL: CONTROL_DEFAULT,  SCORE: 1.0,  COMPLEXITY: 1.0, SUPPORT: 1.0,
-            OVERLAP: 1.0, SAMPLE: sample, RUN_ID: run_id, RUN_NAME: run_name
+            CONTROL: CONTROL_DEFAULT,  SCORE: 1.0,  COMPLEXITY: 1.0,
+            SUPPORT: 1.0, OVERLAP: 1.0,
+            SAMPLE: sample, RUN_ID: run_id, RUN_NAME: run_name
         }
         if control_sample:
             # Recording but not writing indel calls
@@ -188,6 +192,13 @@ if __name__ == "__main__":
                 for (variant, features) in aggregated_indels_list_1
             ]
             control_calls[sample_id] = aggregated_indels_list
+            out_indels_ext = f"{FILTERED_INDELS_VCF_EXT}_aux"
+            out_indels_vcf_file = vcf_sample_file(
+                parameters, sample_id, ext=out_indels_ext
+            )
+            vcf_write_variants_features(
+                out_indels_vcf_file, aggregated_indels_list
+            )
         else:
             # Writing indel calls in a VCF file
             aggregated_indels_list_2 = [
@@ -202,24 +213,35 @@ if __name__ == "__main__":
             out_indels_vcf_file = vcf_sample_file(
                 parameters, sample_id, ext=out_indels_ext
             )
-            vcf_write_variants_features(out_indels_vcf_file, aggregated_indels_list)
+            vcf_write_variants_features(
+                out_indels_vcf_file, aggregated_indels_list
+            )
             # Reading the VCF file into a DataFrame
             indels_df = vcf_import_df(out_indels_vcf_file)
             # # Bug: the initial VCF files
             # indels_df[ID_COL] = indels_df.apply(lambda row: '.', axis=1)
-            os.remove(out_indels_vcf_file)
+            # os.remove(out_indels_vcf_file)
             indels_df.sort_values(by=[CHR_COL, POS_COL], inplace=True)
             indels_df.reset_index(drop=True, inplace=True)
             # Updating the penalizing scores
-            add_complexity_score(indels_df, manifest, COMP_KMIN, COMP_KMAX, COMP_L)
+            add_complexity_score(
+                indels_df, manifest, COMP_KMIN, COMP_KMAX, COMP_L
+            )
             add_support_score(indels_df, SUPP_MIN)
             add_overlap_score(indels_df)
             add_confidence_score(indels_df)
-            indels_df[INFO_COL] = indels_df.apply(lambda row: reformat_info(row), axis=1)
-            indels_df.drop(columns=[SCORE, COMPLEXITY, SUPPORT, OVERLAP], inplace=True)
-            vcf_write_df(out_vcf_file, indels_df, sorting=VCF_SORT_POS, append=True)
+            indels_df[INFO_COL] = indels_df.apply(
+                lambda row: reformat_info(row), axis=1
+            )
+            indels_df.drop(
+                columns=[SCORE, COMPLEXITY, SUPPORT, OVERLAP], inplace=True
+            )
+            vcf_write_df(
+                out_vcf_file, indels_df, sorting=VCF_SORT_POS, append=True
+            )
 
-    # Loading ghe amplicons manifest and the list of non-excluded non-MSI samples
+    # Loading ghe amplicons manifest and the list of non-excluded non-MSI
+    # samples
     # By default MSI samples are not considered for indels calling.
     manifest_file_path = os.path.join('data', args.manifest)
     manifest = AmpliconsManifest(manifest_file_path)
@@ -243,7 +265,9 @@ if __name__ == "__main__":
         amplicon_list = manifest.get_amplicons_id()
         # Filtering out MSI amplicons
         msi_amplicon_list = manifest.get_msi_amplicons_id()
-        nonmsi_amplicon_list = [x for x in amplicon_list if x not in msi_amplicon_list]
+        nonmsi_amplicon_list = [
+            x for x in amplicon_list if x not in msi_amplicon_list
+        ]
 
         out_vcf_file = os.path.join('results', run_id, f"{run_id}_indels.vcf")
         out_vcf = open(out_vcf_file, 'w')
@@ -251,11 +275,14 @@ if __name__ == "__main__":
         out_vcf.close()
 
         # Processing samples
-        # Reading variants for control samples and filtering for all filters but last one
+        # Reading variants for control samples and filtering for all filters
+        # but last one
         control_samples = [CONTROL_NF, CONTROL_BLANK]
         control_calls = {}
         for sample_id in sample_list:
-            if parameters.check_is_control(sample_id, control_keys=control_samples):
+            if parameters.check_is_control(
+                sample_id, control_keys=control_samples
+            ):
                 print(f"\t{sample_id}")
                 process_sample(
                     parameters,
@@ -270,7 +297,9 @@ if __name__ == "__main__":
                 )
         # Filtering variants from non-control samples
         for sample_id in sample_list:
-            if not parameters.check_is_control(sample_id, control_keys=control_samples):
+            if not parameters.check_is_control(
+                sample_id, control_keys=control_samples
+            ):
                 print(f"\t{sample_id}")
                 process_sample(
                     parameters,
