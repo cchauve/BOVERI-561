@@ -238,26 +238,31 @@ def run_cmd_a1(dataset_name, run_id_list, ctrl_vaf_diff):
     """
     out_file_name = dataset_name.replace('.csv', '_out_1.tsv')
     out_file = open(os.path.join('results', out_file_name), 'w')
-    header = (
-        f"run_id\tsample\tchr\tpos\tref\talt\t"
-        f"vaf\texp_vaf\tscore\tcomplexity\tsupport\toverlap\t{HEADER_STATS}"
-    )
-    out_file.write(header)
+    header_1 = 'run_id\tsample\tchr\tpos\tref\talt\t'
+    header_2 = 'vaf\t'
+    header_2_len = header_2.count('\t')
+    header_3 = 'exp_vaf'
+    header_4 = f"\tscore\tcomplexity\tsupport\toverlap\t{HEADER_STATS}"
+    header_4_len = header_4.count('\t')
+    out_file.write(header_1 + header_2 + header_3 + header_4)
     for run_id in run_id_list:
         expected_indels_df, called_indels_df = get_run_data(
             run_id, ALL_EXPECTED_INDELS_DF, ctrl_vaf_diff
         )
         # loop on all expected indels
         for index, row in expected_indels_df.iterrows():
+            exp_vaf = row['exp_vaf']
             indel_info = [run_id] + [row[x] for x in INDEL_FEATURES_NOVAF]
             indel_str = '\t'.join([str(x) for x in indel_info])
             called_index = find_indel(row, called_indels_df)
             if len(called_index) == 0:
-                stat_str = '\t'.join(['nan' for i in range(11)])
+                stat_str = '\t'.join(['nan' for i in range(header_2_len)])
+                stat_str += f"\t{str(exp_vaf)}\t"
+                stat_str += '\t'.join(['nan' for i in range(header_4_len)])
             else:
                 indel_called = called_indels_df.loc[called_index[0]]
                 score = indel_called['score']
-                vaf, exp_vaf = indel_called['vaf'], row['exp_vaf']
+                vaf = indel_called['vaf']
                 complexity = indel_called['complexity']
                 support = indel_called['support']
                 overlap = indel_called['overlap']
