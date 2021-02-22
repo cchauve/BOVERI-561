@@ -324,7 +324,10 @@ def process_indels(parameters):
                 if fn_status == 'FN_u':
                     indel_info += [row[x] for x in INDEL_FEATURES_EXPVAF]
                 else:
-                    indel_info += [row[x] for x in INDEL_FEATURES_VAF_1]
+                    indel_info += [
+                        run_indels_df.at[index_found, x]
+                        for x in INDEL_FEATURES_VAF_1
+                    ]
                 indel_info += features
                 indel_str = '\t'.join([str(x) for x in indel_info])
                 out_file_errors.write('\n' + indel_str)
