@@ -8,16 +8,10 @@ import argparse
 import csv
 import os
 import pandas as pd
+import yaml
 
 # ------------------------------------------------------------------------------
 # Global input
-# Input: amplicons manifest
-MANIFEST_DF = pd.read_csv(
-    'data/CG001v4.0_Amplicon_Manifest_Panel4.0.3_20181101.tsv', sep='\t'
-)
-MANIFEST_DICT = {}
-for _, row in MANIFEST_DF.iterrows():
-    MANIFEST_DICT[row['Amplicon_ID']] = row['Amplicon']
 
 ## Analysis: Features defining an indel
 ## Basic indel features
@@ -29,8 +23,54 @@ INDEL_FEATURES_VAF_1 = INDEL_FEATURES + ['vaf']
 INDEL_FEATURES_VAF_2 = ['score', 'complexity', 'support', 'overlap', 'control']
 INDEL_FEATURES_VAF = INDEL_FEATURES_VAF_1 + INDEL_FEATURES_VAF_2
 
+# Paremeters keys for the YAML file
+GRID_KEY = 'grid'
+LLOD_KEY = 'llod'
+SCORES_KEY = 'scores'
+W_COMP_KEY = 'w_comp'
+BLACKLIST_KEY = 'blacklist'
+EXPECTED_INDELS_FILE = 'expected_indels_file'
+OUT_SUFFIX_KEY = 'out_suffix'
+
 # ------------------------------------------------------------------------------
 # Auxiliary functions
+
+def read_parameters(yaml_file_path):
+    """
+    Read a YAML parameters file and returns a dictionary of parameters values:
+    - thresholds grid
+    - llod parameters
+    - blacklist
+    """
+    parameters = {BLACKLIST_KEY: [], GRID_KEY: None, OUT_SUFFIX_KEY: ''}
+    with open(yaml_file_path) as c_file:
+        parameters_dict = yaml.safe_load(c_file)
+        for key, value in parameters_dict.items():
+            if key == GRID_KEY:
+                parameters[GRID_KEY] = [
+                    (float(x.split('_')[0]), float(x.split('_')[1]))
+                    for x in value.split()
+                ]
+            elif key == SCORES_KEY:
+                scores_range = value.split()
+                start, end = int(scores_range[0]), int(scores_range[1])
+                step = float(scores_range[2])
+                scores = [round(x * step, 2) for x in range(start, end)]
+            elif key == W_COMP_KEY:
+                w_comp_range = value.split()
+                start, end = int(w_comp_range[0]), int(w_comp_range[1])
+                step = float(w_comp_range[2])
+                w_comp = [round(x * step, 2) for x in range(start, end)]
+            elif key == BLACKLIST_KEY:
+                parameters[BLACKLIST_KEY] = read_blacklist(value)
+            elif key == LLOD_KEY:
+                parameters[LLOD_KEY] = [float(x) for x in value.split()]
+            elif key == OUT_SUFFIX_KEY:
+                parameters[OUT_SUFFIX_KEY] = value
+    if parameters[GRID_KEY] is None:
+        parameters[GRID_KEY] = [(s, w) for s in scores for w in w_comp]
+    return parameters
+
 
 def read_blacklist(blacklist_csv_file):
     """
@@ -46,15 +86,6 @@ def read_blacklist(blacklist_csv_file):
         for row in blacklist_data:
             blacklist.append((row[0], int(row[1]), row[2], row[3]))
     return blacklist
-
-def filter_qmrs(df):
-    """
-    Returns a variants dataframe excluding all calls from QMRS
-    :param: df (DataFrame): dataframe of indels with a column 'sample'
-    :return: DataFrame: input dataframe without any row where the 'sample' entry
-    starts with 'QMRS'
-    """
-    return df.loc[~df['sample'].str.startswith('QMRS')]
 
 def filter_blacklist(df, blacklist):
     """
@@ -79,7 +110,7 @@ def filter_blacklist(df, blacklist):
     return  df.loc[~df.index.isin(index)]
 
 def get_run_data(
-    run_id, samples, expected_indels_df, blacklist=None
+    run_id, samples, expected_indels_df, blacklist=[]
 ):
     """
     Returns the dataframes of expected and detected indels for run run_id from
@@ -101,16 +132,11 @@ def get_run_data(
     detected_df_aux['sample'] = detected_df_aux.apply(
         lambda row: row['sample'].split('_S')[0], axis=1
     )
-    run_indels_df_0 = detected_df_aux.loc[
+    run_indels_df = detected_df_aux.loc[
         detected_df_aux['sample'].isin(samples)
-    ]
-    # Excluding the QMRS sample and rounding all numerical values
-    run_indels_df = filter_qmrs(run_indels_df_0).round(3)
+    ].round(3)
     # Excluding indels in the blasklist
-    if blacklist is not None:
-        run_detected_indels_df = filter_blacklist(run_indels_df, blacklist)
-    else:
-        run_detected_indels_df = run_indels_df
+    run_detected_indels_df = filter_blacklist(run_indels_df, blacklist)
     # Reading the expected (true) indels
     df_aux = expected_indels_df
     run_expected_indels_df = df_aux.loc[df_aux['run_id']==run_id]
@@ -183,44 +209,36 @@ def compute_ratio(x, y, precision=2):
     """
     return (0.0 if y == 0 else  round(x / y, precision))
 
-def process_indels(exp_indels_file, blacklist_file='None'):
+def process_indels(parameters):
     """
     Computing sensitivity, specificity, precision, recall, F1, FDR, accuracy
     for a grid of thresholds and parameters
-    :param: exp_indels_file (str): path to file with expected indels
-    :param: blacklist_file (str): path to a csv file containing the features
-    chr, pos, ref, alt for indels to exclude from the analysis
+    :param: parameters (dict): parameters dictionary containing the LLOD,
+    grid of thresholds, expected indels input file and blacklist list
     :return: None
     Write two files. If exp_indels_file is NAME.tsv:
     - NAME_out.tsv: statistics
     - NAME_errors.tsv: FP and FN indels
     """
+    exp_indels_file = parameters[EXPECTED_INDELS_FILE]
+    llod_min = parameters[LLOD_KEY][0]
+    llod_lowering_factor = parameters[LLOD_KEY][1]
+    grid = parameters[GRID_KEY]
+    blacklist = parameters[BLACKLIST_KEY]
+    out_suffix = parameters[OUT_SUFFIX_KEY]
     # Reading expected indels
     ALL_EXPECTED_INDELS_DF = pd.read_csv(exp_indels_file, sep='\t')
     ALL_EXPECTED_INDELS_DF.rename(columns={'chromosome': 'chr'}, inplace=True)
-    # LLOD set to half of the lowest seen expected VAF
+    # LLOD
     LLOD = ALL_EXPECTED_INDELS_DF['exp_vaf'].min()
     if pd.isnull(LLOD):
         LLOD = 0.0
-    LLOD_LOWERED = max(0.25, 0.5 * LLOD) # LLOD calling value
+    LLOD_LOWERED = max(llod_min, llod_lowering_factor * LLOD)
     # List of runs
     RUNS_ID_LIST = list(ALL_EXPECTED_INDELS_DF['run_id'].unique())
-    # Penalty thresholds: calling only indels below this threshold
-    SCORES = [s/10.0 for s in range(1,21)] # Scores to 2.0 by steps of 0.1
-    # DEBUG SCORES = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
-    # Normalization factor for complexity penalty
-    W_COMP = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    # DEBUG W_COMP = [0.0, 0.25, 0.5, 0.75, 1.0]
-    # Grid of explored parameters (penalty, normalisation of complexity)
-    GRID = [(s, w) for s in SCORES for w in W_COMP]
-    # Reading the black list of variants
-    if blacklist_file != 'None':
-        blacklist = read_blacklist(blacklist_file)
-    else:
-        blacklist = None
     # Output file
     _, dataset_name = os.path.split(exp_indels_file)
-    out_file_name = dataset_name.replace('.tsv', '_out.tsv')
+    out_file_name = dataset_name.replace('.tsv', f"{out_suffix}_out.tsv")
     out_file = open(os.path.join('results', out_file_name), 'w')
     header_1 = ['LLOD', 'score', 'w_comp']
     header_2 = ['TP', 'FP', 'TN', 'FN_u', 'FN_d']
@@ -232,7 +250,8 @@ def process_indels(exp_indels_file, blacklist_file='None'):
     header_5 = ['score', 'comp.', 'supp.', 'overlap', 'ctrl']
     out_file_errors.write('\t'.join(header_1 + header_4 + header_5))
     # Going through pipeline results
-    for (score, w) in GRID:
+    for (score, w) in grid:
+        w1 = round(1.0 - w, 2)
         print(LLOD, LLOD_LOWERED, score, w)
         # Numbers of TP, FP and TN
         nb_tp, nb_fp, nb_tn = 0, 0, 0
@@ -250,7 +269,8 @@ def process_indels(exp_indels_file, blacklist_file='None'):
                 run_id, samples, ALL_EXPECTED_INDELS_DF, blacklist=blacklist)
             # Reducing the weight of complexity penalty by factor w
             all_detected_indels_df['score'] = all_detected_indels_df.apply(
-                lambda row: row['score'] - (w * row['complexity']), axis=1
+                lambda row: row['score'] - (w1 * row['complexity']),
+                axis=1
             )
             # Filtering out detected indels with a VAF below LLOD_LOWERED
             detected_indels_df = all_detected_indels_df.loc[
@@ -273,7 +293,7 @@ def process_indels(exp_indels_file, blacklist_file='None'):
             # Output of FP indels
             for _, row in fp_df.iterrows():
                 indel_info = (
-                    [LLOD, score, round(1.0 - w, 2), 'FP', run_id] +
+                    [LLOD, score, w, 'FP', run_id] +
                     [row[x] for x in INDEL_FEATURES_VAF_1] +
                     [round(row[x], 3) for x in INDEL_FEATURES_VAF_2]
                 )
@@ -299,7 +319,7 @@ def process_indels(exp_indels_file, blacklist_file='None'):
                     features = ['nan' for x in INDEL_FEATURES_VAF_2]
                 # Writing FN indel
                 indel_info = (
-                    [LLOD, score, round(1.0 - w, 2), fn_status, run_id] +
+                    [LLOD, score, round(w), fn_status, run_id] +
                     [row[x] for x in INDEL_FEATURES_EXPVAF] +
                     features
                 )
@@ -331,16 +351,16 @@ if __name__ == "__main__":
     # Input file
     ARGS_EXPECTED_FILE = ['exp_indels_file', None, 'Expected indels file']
     # Black list file
-    ARGS_blacklist = ['-b', '--blacklist_file', 'Black list file']
-    parser = argparse.ArgumentParser(description='Indels testing: analyze')
+    ARGS_PARAMETERS_FILE = ['parameters_file', None, 'Parameters YAML file']
+    parser = argparse.ArgumentParser(description='Indels testing: explore scores')
     parser.add_argument(ARGS_EXPECTED_FILE[0],
                         type=str,
                         help=ARGS_EXPECTED_FILE[2])
-    parser.add_argument(ARGS_blacklist[0],
-                        ARGS_blacklist[1],
+    parser.add_argument(ARGS_PARAMETERS_FILE[0],
                         type=str,
-                        default='data/BOVERI-532_blacklist.csv',
-                        help=ARGS_blacklist[2])
+                        help=ARGS_PARAMETERS_FILE[2])
     args = parser.parse_args()
 
-    process_indels(args.exp_indels_file, args.blacklist_file)
+    parameters = read_parameters(args.parameters_file)
+    parameters[EXPECTED_INDELS_FILE] = args.exp_indels_file
+    process_indels(parameters)

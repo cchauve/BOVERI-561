@@ -14,6 +14,7 @@ from bin.features_utils import (
     MAX_COV,
     SCORE,
     SOURCE,
+    TOTAL_COV,
 )
 from vcf_utils import (
     VAF,
@@ -180,13 +181,11 @@ def add_complexity_score(df, amplicons_data, kmin, kmax, flanking_len, weight=1.
     df.drop(columns=[COMP_REF_COL, COMP_ALT_COL], inplace=True)
 
 
-def compute_support_score(row, support_min, weight):
+def compute_support_score(row, weight):
     """
     Computes the support penalty of a variant encoded in a
     dataframe row
     :param: row (DataFrame row): row encoding the variant
-    :param: support_min (int): base of exponent for computing the support
-    penalty
     :param: weight (float): weight associated to the support score to
     define the penalty
     :return: float: support penalty
@@ -196,11 +195,13 @@ def compute_support_score(row, support_min, weight):
     for info in info_list:
         info_split = info.split('=')
         if info_split[0] == MAX_COV:
-            max_cluster = int(info_split[1])
-    score = (support_min ** (1.0 / max_cluster) - 1) / (support_min - 1)
+            max_cluster = float(info_split[1])
+        if info_split[0] == TOTAL_COV:
+            all_clusters = float(info_split[1])
+    score = 1.0 - (max_cluster / all_clusters)
     return  weight * score
 
-def add_support_score(df, support_min, weight=1.0):
+def add_support_score(df, weight=1.0):
     """
     Add in-place a support score to a variants dataframe
     :param: df (DataFrame): variants dataframe
@@ -210,7 +211,7 @@ def add_support_score(df, support_min, weight=1.0):
     define the penalty
     """
     df[SUPPORT] = df.apply(
-        lambda row: compute_support_score(row, support_min, weight), axis=1
+        lambda row: compute_support_score(row, weight), axis=1
     )
 
 
@@ -287,6 +288,23 @@ def add_overlap_score(df, weight=1.0):
     overlaps = compute_overlapping_calls(df)
     compute_overlapping_score(df, overlaps, weight)
 
+
+def compute_control_score(row, weight):
+    info_list = row[INFO_COL].split(';')
+    for info in info_list:
+        info_split = info.split('=')
+        if info_split[0] == CONTROL:
+            closest_ctrl_vaf = float(info_split[1])
+        if info_split[0] == VAF:
+            current_vaf = float(info_split[1])
+    score = min(1.0, closest_ctrl_vaf / current_vaf)
+    return weight * score
+
+def add_control_score(df, weight=1.0):
+    df[CONTROL] = df.apply(
+        lambda row: compute_control_score(row, weight), axis=1
+    )
+
 def compute_confidence_score(row):
     """
     Computes the overall penalty for a a variant encoded in a
@@ -294,7 +312,7 @@ def compute_confidence_score(row):
     :param: row (DataFrame row): row encoding the variant
     :return: float: penalty
     """
-    return round(row[COMPLEXITY] + row[SUPPORT] + row[OVERLAP], 3)
+    return round(row[COMPLEXITY] + row[SUPPORT] + row[OVERLAP] + row[CONTROL], 3)
 
 def add_confidence_score(df):
     """

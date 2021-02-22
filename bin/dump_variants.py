@@ -36,6 +36,7 @@ from bin.postprocessing_utils import (
 )
 from postprocessing_utils import (
     add_confidence_score,
+    add_control_score,
     add_support_score,
     add_complexity_score,
     add_overlap_score,
@@ -73,7 +74,6 @@ from vcf_utils import (
 COMP_KMIN = 2 # Min k-mers considered for sequence complexity score
 COMP_KMAX = 3 # Max k-mers considered for sequence complexity score
 COMP_L = 5 # Number of flanking bases for sequence complexity score
-SUPP_MIN = 10 # Min support for support score
 
 # Extension for VCF files with scores computed
 FILTERED_INDELS_VCF_EXT = '_indels_filtered'
@@ -164,6 +164,7 @@ if __name__ == "__main__":
             info_dict[COMPLEXITY] = row[COMPLEXITY]
             info_dict[SUPPORT] = row[SUPPORT]
             info_dict[OVERLAP] = row[OVERLAP]
+            info_dict[CONTROL] = row[CONTROL]
             info_str = ';'.join([f"{k}={v}" for k, v in info_dict.items()])
             return info_str
 
@@ -227,14 +228,16 @@ if __name__ == "__main__":
             add_complexity_score(
                 indels_df, manifest, COMP_KMIN, COMP_KMAX, COMP_L
             )
-            add_support_score(indels_df, SUPP_MIN)
+            add_support_score(indels_df)
             add_overlap_score(indels_df)
+            add_control_score(indels_df)
             add_confidence_score(indels_df)
             indels_df[INFO_COL] = indels_df.apply(
                 lambda row: reformat_info(row), axis=1
             )
             indels_df.drop(
-                columns=[SCORE, COMPLEXITY, SUPPORT, OVERLAP], inplace=True
+                columns=[SCORE, COMPLEXITY, SUPPORT, OVERLAP, CONTROL],
+                inplace=True
             )
             vcf_write_df(
                 out_vcf_file, indels_df, sorting=VCF_SORT_POS, append=True
