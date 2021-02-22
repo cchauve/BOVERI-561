@@ -320,13 +320,12 @@ def process_indels(parameters):
                     nb_fn_undetected += 1
                     fn_status = 'FN_u'
                     features = ['nan' for x in INDEL_FEATURES_VAF_2]
-                # Writing FN indel
-                indel_info = (
-                    [round(LLOD, 2), round(score, 2), round(w, 2)] +
-                    [fn_status, run_id] +
-                    [row[x] for x in INDEL_FEATURES_EXPVAF] +
-                    features
-                )
+                indel_info = [round(LLOD, 2), round(score, 2), round(w, 2)]
+                if fn_status == 'FN_u':
+                    indel_info_fields += [row[x] for x in INDEL_FEATURES_EXPVAF]
+                else:
+                    indel_info_fields += [row[x] for x in INDEL_FEATURES_VAF_1]
+                indel_info += features
                 indel_str = '\t'.join([str(x) for x in indel_info])
                 out_file_errors.write('\n' + indel_str)
         # Checking all FNs are either detected or undected
