@@ -202,7 +202,9 @@ def compare_indels(expected_df, detected_df, score):
     return index_tp, index_fn, index_fp, index_tn
 
 # ------------------------------------------------------------------------------
-def compute_ratio(x, y, precision=2):
+STAT_PRECISION = 3
+
+def compute_ratio(x, y, precision=STAT_PRECISION):
     """
     Computes the ratio x/y with precision precision, but if y=0 in whih case
     returns 0.0
@@ -265,16 +267,16 @@ def process_indels(parameters):
             ]['sample'].unique()
             # Extracting all expected indels and all detected indels for the
             # selected samples of the run, but the black-listed ones
-            expected_indels_df, all_detected_indels_df = get_run_data(
+            expected_indels_df, run_indels_df = get_run_data(
                 run_id, samples, ALL_EXPECTED_INDELS_DF, blacklist=blacklist)
             # Reducing the weight of complexity penalty by factor w
-            all_detected_indels_df['score'] = all_detected_indels_df.apply(
+            run_indels_df['score'] = run_indels_df.apply(
                 lambda row: row['score'] - (w1 * row['complexity']),
                 axis=1
             )
             # Filtering out detected indels with a VAF below LLOD_LOWERED
-            detected_indels_df = all_detected_indels_df.loc[
-                (all_detected_indels_df['vaf']>=(LLOD_LOWERED))
+            detected_indels_df = run_indels_df.loc[
+                (run_indels_df['vaf']>=(LLOD_LOWERED))
             ]
             # Index in dataframes of TP (detected_indels_df),
             # FN (expected_indels_df), FP (detected_indels_df) and
@@ -293,7 +295,8 @@ def process_indels(parameters):
             # Output of FP indels
             for _, row in fp_df.iterrows():
                 indel_info = (
-                    [LLOD, score, w, 'FP', run_id] +
+                    [round(LLOD, 2), round(score, 2), round(w, 2)] +
+                    ['FP', run_id] +
                     [row[x] for x in INDEL_FEATURES_VAF_1] +
                     [round(row[x], 3) for x in INDEL_FEATURES_VAF_2]
                 )
@@ -302,14 +305,14 @@ def process_indels(parameters):
             # Output of FN indels, separated in two cases, FN detected but not
             # called and FN undetected
             for _, row in fn_df.iterrows():
-                index_indel_in_detected = find_indel(row, all_detected_indels_df)
+                index_indel_in_detected = find_indel(row, detected_indels_df)
                 if len(index_indel_in_detected) == 1:
                     # Detected but uncalled FN
                     index_found = index_indel_in_detected[0]
                     nb_fn_detected += 1
                     fn_status = 'FN_d'
                     features = [
-                        round(all_detected_indels_df.at[index_found, x], 3)
+                        round(detected_indels_df.at[index_found, x], 3)
                         for x in INDEL_FEATURES_VAF_2
                     ]
                 else:
@@ -319,7 +322,8 @@ def process_indels(parameters):
                     features = ['nan' for x in INDEL_FEATURES_VAF_2]
                 # Writing FN indel
                 indel_info = (
-                    [LLOD, score, round(w), fn_status, run_id] +
+                    [round(LLOD, 2), round(score, 2), round(w, 2)] +
+                    [fn_status, run_id] +
                     [row[x] for x in INDEL_FEATURES_EXPVAF] +
                     features
                 )
@@ -334,9 +338,9 @@ def process_indels(parameters):
         precision = compute_ratio(nb_tp, nb_tp + nb_fp)
         recall = sensitivity
         F1 = compute_ratio(2.0 * precision * recall, precision + recall)
-        FDR = round(1.0 - precision, 2)
+        FDR = round(1.0 - precision, STAT_PRECISION)
         # Output of statistics
-        param = [LLOD, score, round(1.0 - w, 2)]
+        param = [LLOD, score, round(w, 2)]
         stats = [nb_tp, nb_fp, nb_tn, nb_fn_undetected, nb_fn_detected]
         stats += [sensitivity, specificity, accuracy, precision, recall]
         stats += [F1, FDR]

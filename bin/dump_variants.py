@@ -41,7 +41,7 @@ from postprocessing_utils import (
     add_complexity_score,
     add_overlap_score,
     get_control_samples_feature,
-    CONTROL_DEFAULT,
+    SCORE_DEFAULT,
 )
 from bin.variants_graph_utils import VariantsGraph
 from bin.variants_utils import (
@@ -181,11 +181,12 @@ if __name__ == "__main__":
         # Filtering indels per sample
         aggregated_indels_list_1 = aggregate_variants(in_indels_list)
         # Extra features default values
-        score_dict = {
-            CONTROL: CONTROL_DEFAULT,  SCORE: 1.0,  COMPLEXITY: 1.0,
-            SUPPORT: 1.0, OVERLAP: 1.0,
-            SAMPLE: sample, RUN_ID: run_id, RUN_NAME: run_name
-        }
+        score_dict = {}
+        for key in [SCORE, COMPLEXITY, SUPPORT, OVERLAP, CONTROL]:
+            score_dict[key] = SCORE_DEFAULT
+        score_dict[SAMPLE] = sample
+        score_dict[RUN_ID] = run_id
+        score_dict[RUN_NAME] = run_name
         if control_sample:
             # Recording but not writing indel calls
             aggregated_indels_list = [
@@ -219,12 +220,12 @@ if __name__ == "__main__":
             )
             # Reading the VCF file into a DataFrame
             indels_df = vcf_import_df(out_indels_vcf_file)
-            # # Bug: the initial VCF files
-            # indels_df[ID_COL] = indels_df.apply(lambda row: '.', axis=1)
-            # os.remove(out_indels_vcf_file)
+            # Bug: the initial VCF files
+            indels_df[ID_COL] = indels_df.apply(lambda row: '.', axis=1)
+            os.remove(out_indels_vcf_file)
             indels_df.sort_values(by=[CHR_COL, POS_COL], inplace=True)
             indels_df.reset_index(drop=True, inplace=True)
-            # Updating the penalizing scores
+            # Updating the penalty scores
             add_complexity_score(
                 indels_df, manifest, COMP_KMIN, COMP_KMAX, COMP_L
             )

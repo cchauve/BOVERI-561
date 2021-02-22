@@ -26,7 +26,7 @@ from vcf_utils import (
     ID_COL,
 )
 
-CONTROL_DEFAULT = 1.0
+SCORE_DEFAULT = 0.0
 
 def get_control_samples_feature(parameters, variants_features, ctrl_variants_features):
     """
@@ -52,7 +52,7 @@ def get_control_samples_feature(parameters, variants_features, ctrl_variants_fea
     out_list = []
     for (variant, features, score_dict) in variants_features:
         v_str = variant.to_str(novaf=True)
-        closest_vaf, closest_vaf_diff = CONTROL_DEFAULT, 1.0
+        closest_vaf_diff = 1.0
         if v_str in ctrl_variants_str:
             ctrl_vaf_list = ctrl_variants_vaf[v_str]
             in_vaf = variant.get_vaf()
@@ -61,7 +61,7 @@ def get_control_samples_feature(parameters, variants_features, ctrl_variants_fea
                 if vaf_diff < closest_vaf_diff:
                     closest_vaf = ctrl_vaf
                     closest_vaf_diff = vaf_diff
-        score_dict[CONTROL] = closest_vaf
+                    score_dict[CONTROL] = closest_vaf
         out_list.append((variant, features, score_dict))
     return out_list
 

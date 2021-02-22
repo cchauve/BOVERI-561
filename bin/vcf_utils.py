@@ -172,6 +172,8 @@ def vcf_variant(variant, features, extra_features, precision=VAF_PRECISION):
 
     :param: variant (Variant): variant
     :param: features (VariantFeatures): features of the variant
+    :param: extra_features (dict(str, float)) indexed by COMPLEXITY, SCORE,
+    SUPPORT, OVERLAP, CONTROL
     :param: precision (int): precision of floating numbers
 
     :return: str: VCF entry
