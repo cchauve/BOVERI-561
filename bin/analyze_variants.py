@@ -302,14 +302,14 @@ def process_indels(parameters):
             # Output of FN indels, separated in two cases, FN detected but not
             # called and FN undetected
             for _, row in fn_df.iterrows():
-                index_indel_in_detected = find_indel(row, detected_indels_df)
+                index_indel_in_detected = find_indel(row, all_detected_indels_df)
                 if len(index_indel_in_detected) == 1:
                     # Detected but uncalled FN
                     index_found = index_indel_in_detected[0]
                     nb_fn_detected += 1
                     fn_status = 'FN_d'
                     features = [
-                        round(detected_indels_df.at[index_found, x], 3)
+                        round(all_detected_indels_df.at[index_found, x], 3)
                         for x in INDEL_FEATURES_VAF_2
                     ]
                 else:
