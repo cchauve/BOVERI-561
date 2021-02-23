@@ -33,11 +33,6 @@ header += ['sens.', 'spec.', 'acc.', 'prec.', 'recall', 'F1', 'FDR']
 COMBINATIONS = []
 for setting in GRID:
     setting_split = setting.replace('VAF_NG_', '').split('_')
-    vaf_min = setting_split[0]
-    vaf_max = setting_split[1]
-    ng_min = setting_split[2]
-    ng_max = setting_split[3].replace('100.0', '64.0')
-    info1 = [vaf_min, vaf_max, ng_min, ng_max]
     in_file = '_'.join([PREF, setting, EXT, 'out.tsv'])
     in_df = pd.read_csv(in_file, dtype=str, sep='\t')
     in_df_columns = list(in_df.columns)
@@ -50,11 +45,11 @@ for setting in GRID:
     print('\t'.join(header))
     for _, row in in_df.iterrows():
         if (row[COL1] >= FACTOR * COL1_max) and (row[COL2] >= FACTOR * COL2_max):
-            info = info1 + [row[c] for c in in_df_columns]
+            info = [row[c] for c in in_df_columns]
             print('\t'.join([str(x) for x in info]))
             COMBINATIONS.append((row['score'], row['w_comp']))
     print('```')
-    
+
 print('\n### Combinations frequencies\n```\nscore\tw_comp\tfrequency')
 FREQUENCIES = collections.Counter(COMBINATIONS)
 FREQUENCIES_KEYS = list(FREQUENCIES.keys())
