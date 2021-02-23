@@ -341,7 +341,7 @@ def process_indels(parameters):
                     expected_vaf = row['exp_vaf']
                     vaf_info = (
                         [round(LLOD, 2), round(score, 2), round(w, 2)] +
-                        [row[x]) for x in INDEL_FEATURES] +
+                        [row[x] for x in INDEL_FEATURES] +
                         [detected_vaf, expected_vaf, 'FN']
                     )
                     vaf_str = '\t'.join([str(x) for x in vaf_info])
