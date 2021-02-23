@@ -11,3 +11,8 @@ do
     python bin/analyze_variants.py ${I} BOVERI-532_parameters-2.yaml
     python bin/analyze_variants.py ${I} BOVERI-532_parameters-3.yaml
 done
+
+cd results
+python filter_results.py with_blacklist 0.95 F1 F1 13
+python analyze_errors.py
+cd ..
