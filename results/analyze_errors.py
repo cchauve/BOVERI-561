@@ -53,8 +53,7 @@ for setting in GRID:
         v_key = '_'.join([
             str(x) for x in [row['chr'], row['pos'], row['ref'], row['alt']]
         ])
-        error_type = row['w_comp']
-        print(error_type)
+        error_type = row['error']
         # Bug in output: LLOD used as index, error type not in header
         VARIANTS_COUNT[error_type][v_key] += 1
         for feature in FEATURES:
@@ -79,7 +78,8 @@ for error_type in ERROR_TYPES:
         out_str_frequency = [str(VARIANTS_COUNT[error_type][v_key])]
         out_str_variant = v_key.split('_')
         out_str_features = [
-            f"{FEATURES_AVG[error_type][feature][v_key]}\t{FEATURES_MAX[error_type][feature][v_key]}"
+            (f"{FEATURES_AVG[error_type][feature][v_key]}"
+            f"\t{FEATURES_MAX[error_type][feature][v_key]}")
             for feature in FEATURES
         ]
         out_str = '\t'.join(
