@@ -328,6 +328,7 @@ def process_indels(parameters):
                         round(run_indels_df.at[index_found, x], 3)
                         for x in INDEL_FEATURES_VAF_2
                     ]
+                    # Output of expected and detected VAF for detected FN
                     detected_vaf = run_indels_df.at[index_found, 'vaf']
                     expected_vaf = row['exp_vaf']
                     vaf_info = [str(row[x]) for x in INDEL_FEATURES]
