@@ -248,9 +248,12 @@ def process_indels(parameters):
     out_file.write('\t'.join(header_1 + header_2 + header_3))
     out_file_errors_name = out_file_name.replace('_out.tsv', '_errors.txt')
     out_file_errors = open(os.path.join('results', out_file_errors_name), 'w')
+    out_file_vaf_name = out_file_name.replace('_out.tsv', '_vaf.tsv')
+    out_file_vaf = open(os.path.join('results', out_file_vaf_name), 'w')
     header_4 = ['run', 'sample', 'chr', 'pos', 'ref', 'alt', 'vaf']
     header_5 = ['score', 'comp.', 'supp.', 'overlap', 'ctrl']
     out_file_errors.write('\t'.join(header_1 + header_4 + header_5))
+    out_file_vaf.write('\t'.join(INDEL_FEATURES + ['vaf', 'exp_vaf']))
     # Going through pipeline results
     for (score, w) in grid:
         w1 = round(1.0 - w, 2)
@@ -290,8 +293,18 @@ def process_indels(parameters):
             nb_fp += len(index_fp)
             nb_tn += len(index_tn)
             # Dataframe of FP indels and FN indels
+            tp_df = detected_indels_df.loc[index_tp]
             fp_df = detected_indels_df.loc[index_fp]
             fn_df = expected_indels_df.loc[index_fn]
+            # VAF detected and expected for TP
+            for _, row in tp_df.iterrows():
+                index_indel_in_expected = find_indel(row, expected_indels_df)[0]
+                expected_vaf = expected_indels_df.at[
+                    index_indel_in_expected, 'exp_vaf'
+                ]
+                vaf_info = [str(row[x]) for x in INDEL_FEATURES_VAF_1]
+                vaf_str = '\t'.join(vaf_info + [str(expected_vaf)])
+                out_file_vaf.write('\n' + vaf_str)
             # Output of FP indels
             for _, row in fp_df.iterrows():
                 indel_info = (
@@ -315,6 +328,12 @@ def process_indels(parameters):
                         round(run_indels_df.at[index_found, x], 3)
                         for x in INDEL_FEATURES_VAF_2
                     ]
+                    detected_vaf = run_indels_df.at[index_found, 'vaf']
+                    expected_vaf = row['exp_vaf']
+                    vaf_info = [str(row[x]) for x in INDEL_FEATURES]
+                    vaf_info += [str(detected_vaf), str(expected_vaf)]
+                    vaf_str = '\t'.join(vaf_info)
+                    out_file_vaf.write('\n' + vaf_str)
                 else:
                     # Undetected FN
                     nb_fn_undetected += 1
@@ -350,6 +369,7 @@ def process_indels(parameters):
         out_file.write('\n' + '\t'.join(results))
     out_file.close()
     out_file_errors.close()
+    out_file_vaf.close()
 
 # ------------------------------------------------------------------------------
 if __name__ == "__main__":
