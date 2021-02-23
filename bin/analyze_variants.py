@@ -255,7 +255,7 @@ def process_indels(parameters):
     header_5 = ['score', 'comp.', 'supp.', 'overlap', 'ctrl']
     out_file_errors.write('\t'.join(header_1 + header_4 + header_5))
     out_file_vaf.write('\t'.join(
-            header1 + INDEL_FEATURES + ['vaf', 'exp_vaf', 'status']
+            header_1 + INDEL_FEATURES + ['vaf', 'exp_vaf', 'status']
         )
     )
     # Going through pipeline results
