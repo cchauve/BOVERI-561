@@ -47,12 +47,14 @@ OUT_FILES = {
 
 for setting in GRID:
     in_file = '_'.join([PREF, setting, SUFF, 'errors.txt'])
+    print(in_file)
     in_df = pd.read_csv(in_file, dtype=str, sep='\t')
     for _, row in in_df.iterrows():
         v_key = '_'.join([
             str(x) for x in [row['chr'], row['pos'], row['ref'], row['alt']]
         ])
         error_type = row['w_comp']
+        print(error_type)
         # Bug in output: LLOD used as index, error type not in header
         VARIANTS_COUNT[error_type][v_key] += 1
         for feature in FEATURES:

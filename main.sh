@@ -13,6 +13,7 @@ do
 done
 
 cd results
-python filter_results.py with_blacklist 0.95 F1 F1 13
+python get_vaf_plots.py
+python filter_results.py with_blacklist 0.95 F1 F1 13 > v4MiSeq_commercial_samples_expected_indels_ExpectedVAFs_MissingSeraSeq_VAF_NG_F1_095.txt
 python analyze_errors.py
 cd ..

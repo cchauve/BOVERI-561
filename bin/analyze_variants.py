@@ -250,7 +250,7 @@ def process_indels(parameters):
     out_file_errors = open(os.path.join('results', out_file_errors_name), 'w')
     out_file_vaf_name = out_file_name.replace('_out.tsv', '_vaf.tsv')
     out_file_vaf = open(os.path.join('results', out_file_vaf_name), 'w')
-    header_4 = ['run', 'sample', 'chr', 'pos', 'ref', 'alt', 'vaf']
+    header_4 = ['error', 'run', 'sample', 'chr', 'pos', 'ref', 'alt', 'vaf']
     header_5 = ['score', 'comp.', 'supp.', 'overlap', 'ctrl']
     out_file_errors.write('\t'.join(header_1 + header_4 + header_5))
     out_file_vaf.write('\t'.join(INDEL_FEATURES + ['vaf', 'exp_vaf', 'status']))
@@ -340,7 +340,10 @@ def process_indels(parameters):
                     nb_fn_undetected += 1
                     fn_status = 'FN_u'
                     features = ['nan' for x in INDEL_FEATURES_VAF_2]
-                indel_info = [round(LLOD, 2), round(score, 2), round(w, 2)]
+                indel_info = [
+                    round(LLOD, 2), round(score, 2), round(w, 2),
+                    fn_status, run_id
+                ]
                 if fn_status == 'FN_u':
                     indel_info += [row[x] for x in INDEL_FEATURES_EXPVAF]
                 else:
