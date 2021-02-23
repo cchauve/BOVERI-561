@@ -33,6 +33,10 @@ header += ['sens.', 'spec.', 'acc.', 'prec.', 'recall', 'F1', 'FDR']
 COMBINATIONS = []
 for setting in GRID:
     setting_split = setting.replace('VAF_NG_', '').split('_')
+    vaf_min = setting_split[0]
+    vaf_max = setting_split[1]
+    ng_min = setting_split[2]
+    ng_max = setting_split[3].replace('100.0', '64.0')
     in_file = '_'.join([PREF, setting, EXT, 'out.tsv'])
     in_df = pd.read_csv(in_file, dtype=str, sep='\t')
     in_df_columns = list(in_df.columns)
