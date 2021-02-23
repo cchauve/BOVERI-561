@@ -64,6 +64,9 @@ contains the list of all FP and FN indels.
 ```results/v4MiSeq_commercial_samples_expected_indels_ExpectedVAFs_MissingSeraSeq_VAF_NG_{v1}_{v2}_{d1}_{d2}_with_blacklist_vaf.tsv```
 contains the observed and detected VAF for all FP and FN indels.
 
+```results/v4MiSeq_commercial_samples_expected_indels_ExpectedVAFs_MissingSeraSeq_VAF_NG_{v1}_{v2}_{d1}_{d2}_with_blacklist_vaf.png```
+contains a scatter plot of the VAF versus expected VAF for TP and FN indels.
+
 The files where '''with_blacklist``` is replaced by ```optimal_thresholds_with_blacklist```
 contain the same information but for a subset of thresholds considered as giving optimal results.
 
