@@ -221,6 +221,7 @@ def process_indels(parameters):
     Write two files. If exp_indels_file is NAME.tsv:
     - NAME_out.tsv: statistics
     - NAME_errors.tsv: FP and FN indels
+    - NAME_vaf.tsv: observed and expected VAFs for TP/FN indel calls
     """
     exp_indels_file = parameters[EXPECTED_INDELS_FILE]
     llod_min = parameters[LLOD_KEY][0]
@@ -253,7 +254,10 @@ def process_indels(parameters):
     header_4 = ['error', 'run', 'sample', 'chr', 'pos', 'ref', 'alt', 'vaf']
     header_5 = ['score', 'comp.', 'supp.', 'overlap', 'ctrl']
     out_file_errors.write('\t'.join(header_1 + header_4 + header_5))
-    out_file_vaf.write('\t'.join(INDEL_FEATURES + ['vaf', 'exp_vaf', 'status']))
+    out_file_vaf.write('\t'.join(
+            header1 + INDEL_FEATURES + ['vaf', 'exp_vaf', 'status']
+        )
+    )
     # Going through pipeline results
     for (score, w) in grid:
         w1 = round(1.0 - w, 2)
@@ -302,8 +306,12 @@ def process_indels(parameters):
                 expected_vaf = expected_indels_df.at[
                     index_indel_in_expected, 'exp_vaf'
                 ]
-                vaf_info = [str(row[x]) for x in INDEL_FEATURES_VAF_1]
-                vaf_str = '\t'.join(vaf_info + [str(expected_vaf), 'TP'])
+                vaf_info = (
+                    [round(LLOD, 2), round(score, 2), round(w, 2)] +
+                    [row[x] for x in INDEL_FEATURES_VAF_1] +
+                    [expected_vaf, 'TP']
+                )
+                vaf_str = '\t'.join([str(x) for x in vaf_info])
                 out_file_vaf.write('\n' + vaf_str)
             # Output of FP indels
             for _, row in fp_df.iterrows():
@@ -331,9 +339,12 @@ def process_indels(parameters):
                     # Output of expected and detected VAF for detected FN
                     detected_vaf = run_indels_df.at[index_found, 'vaf']
                     expected_vaf = row['exp_vaf']
-                    vaf_info = [str(row[x]) for x in INDEL_FEATURES]
-                    vaf_info += [str(detected_vaf), str(expected_vaf), 'FN']
-                    vaf_str = '\t'.join(vaf_info)
+                    vaf_info = (
+                        [round(LLOD, 2), round(score, 2), round(w, 2)] +
+                        [row[x]) for x in INDEL_FEATURES] +
+                        [detected_vaf, expected_vaf, 'FN']
+                    )
+                    vaf_str = '\t'.join([str(x) for x in vaf_info])
                     out_file_vaf.write('\n' + vaf_str)
                 else:
                     # Undetected FN
