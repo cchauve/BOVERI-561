@@ -35,12 +35,13 @@ for setting in GRID:
     in_df = pd.read_csv(in_file, dtype=str, sep='\t')
     in_df['vaf'] = in_df['vaf'].astype(np.float64)
     in_df['exp_vaf'] = in_df['exp_vaf'].astype(np.float64)
+    correlation = in_df['vaf'].corr(in_df['exp_vaf'], method='pearson')
     plt.figure()
     vaf_plot = sns.scatterplot(
         data=in_df, x='vaf', y='exp_vaf', hue='status',
         palette={'TP': 'blue', 'FN': 'orange'}
     )
-    plt.title(title)
+    plt.title(f"{title}, Pearson correlation={round(correlation, 3)}")
     plt.xticks(rotation=90)
     # fig = vaf_plot.get_figure()
     plt.savefig(out_file)
