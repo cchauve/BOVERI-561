@@ -253,7 +253,7 @@ def process_indels(parameters):
     header_4 = ['run', 'sample', 'chr', 'pos', 'ref', 'alt', 'vaf']
     header_5 = ['score', 'comp.', 'supp.', 'overlap', 'ctrl']
     out_file_errors.write('\t'.join(header_1 + header_4 + header_5))
-    out_file_vaf.write('\t'.join(INDEL_FEATURES + ['vaf', 'exp_vaf']))
+    out_file_vaf.write('\t'.join(INDEL_FEATURES + ['vaf', 'exp_vaf', 'status']))
     # Going through pipeline results
     for (score, w) in grid:
         w1 = round(1.0 - w, 2)
@@ -303,7 +303,7 @@ def process_indels(parameters):
                     index_indel_in_expected, 'exp_vaf'
                 ]
                 vaf_info = [str(row[x]) for x in INDEL_FEATURES_VAF_1]
-                vaf_str = '\t'.join(vaf_info + [str(expected_vaf)])
+                vaf_str = '\t'.join(vaf_info + [str(expected_vaf), 'TP'])
                 out_file_vaf.write('\n' + vaf_str)
             # Output of FP indels
             for _, row in fp_df.iterrows():
@@ -332,7 +332,7 @@ def process_indels(parameters):
                     detected_vaf = run_indels_df.at[index_found, 'vaf']
                     expected_vaf = row['exp_vaf']
                     vaf_info = [str(row[x]) for x in INDEL_FEATURES]
-                    vaf_info += [str(detected_vaf), str(expected_vaf)]
+                    vaf_info += [str(detected_vaf), str(expected_vaf), 'FN']
                     vaf_str = '\t'.join(vaf_info)
                     out_file_vaf.write('\n' + vaf_str)
                 else:
