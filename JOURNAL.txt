@@ -1,3 +1,0 @@
-> python bin/extract_files.py data/BOVERI-532.csv
-> python bin/dump_variants.py data/BOVERI-532.csv
-> python bin/analyze_variants.py data/BOVERI-532.csv
