@@ -1,4 +1,0 @@
-# Reduced grid exploration without blacklist
-grid: 0.6_0.5 0.6_0.4 0.7_0.7 0.6_0.0 0.6_0.1 0.6_0.2 0.7_0.3 0.7_0.4 0.7_0.5 0.8_0.8 0.9_1.0 0.5_0.2 0.5_0.3 0.5_0.0 0.5_0.1 0.6_0.3 0.8_0.7 0.4_0.0
-llod: 0.25 0.5
-out_suffix: _optimal_thresholds_no_blacklist

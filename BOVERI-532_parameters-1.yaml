@@ -1,6 +1,0 @@
-# Full grid exploration
-scores: 1 21 0.1
-w_comp: 0 11 0.1
-llod: 0.25 0.5
-blacklist: data/BOVERI-532_blacklist.csv
-out_suffix: _with_blacklist
