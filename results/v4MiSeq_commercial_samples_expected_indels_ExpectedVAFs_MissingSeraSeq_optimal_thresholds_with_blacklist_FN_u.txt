@@ -1,9 +1,0 @@
-freq.	chr	pos	ref	alt	avg_vaf	max_vaf	avg_comp.	max_comp.	avg_supp.	max_supp.	avg_overlap	max_overlap	avg_ctrl	max_ctrl
-270	chr7	55242464	AGGAATTAAGAGAAGC	A	0.547	2.0	nan	nan	nan	nan	nan	nan	nan	nan
-252	chr7	55248998	A	ATGGCCAGCG	0.357	0.75	nan	nan	nan	nan	nan	nan	nan	nan
-108	chr7	55249012	C	CGGT	0.312	1.0	nan	nan	nan	nan	nan	nan	nan	nan
-90	chr7	55242465	GGAATTAAGAGAAGCA	G	0.225	0.5	nan	nan	nan	nan	nan	nan	nan	nan
-90	chr17	7577557	AG	A	0.575	1.0	nan	nan	nan	nan	nan	nan	nan	nan
-90	chr17	37880981	A	AGCATACGTGATG	0.525	1.0	nan	nan	nan	nan	nan	nan	nan	nan
-54	chr4	55141048	T	TA	0.458	0.75	nan	nan	nan	nan	nan	nan	nan	nan
-18	chr17	7579419	AG	A	1.0	1.0	nan	nan	nan	nan	nan	nan	nan	nan
