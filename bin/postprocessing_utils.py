@@ -312,7 +312,7 @@ def compute_confidence_score(row):
     :param: row (DataFrame row): row encoding the variant
     :return: float: penalty
     """
-    return round(row[COMPLEXITY] + row[SUPPORT] + row[OVERLAP] + row[CONTROL], 3)
+    return row[COMPLEXITY] + row[SUPPORT] + row[OVERLAP] + row[CONTROL]
 
 def add_confidence_score(df):
     """

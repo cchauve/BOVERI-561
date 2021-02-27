@@ -32,7 +32,6 @@ from bin.postprocessing_utils import (
     aggregate_variants,
     filter_min_quality,
     filter_nb_gaps,
-    filter_target_vaf,
 )
 from postprocessing_utils import (
     add_confidence_score,
@@ -79,8 +78,158 @@ COMP_L = 5 # Number of flanking bases for sequence complexity score
 FILTERED_INDELS_VCF_EXT = '_indels_filtered'
 MANIFEST_V4_FILE = 'CG001v4.0_Amplicon_Manifest_Panel4.0.3_20181101.tsv'
 
-if __name__ == "__main__":
+def apply_amplicon_filters(parameters, sample_id, amplicon_id, manifest):
+    """
+    Filters on all calls from a single amplicon on the variants graph
+    :param: parameters (Parameters): pipeline parameters
+    :param: in_list (list(Variant, VariantFeatures)): input list of variants
+    and their features
+    :param: sample_id (str): sample ID
+    :param: amplicon ID (str): amplicon ID
+    :param: manifest (AmpliconsManifest): amplicon manifest
+    :return:  list(Variant, VariantFeatures): list of un-filtered indels
+    and their features
+    """
+    # Loading data needed for filters, amplicon sequence, clusters,
+    # alignments, variants-graph
+    amplicon_seq = manifest.get_amplicon(amplicon_id).get_seq()
+    clusters_file = clusters_txt_file(parameters, sample_id, amplicon_id)
+    clusters = ClusterReadsSet.from_file(None, clusters_file)
+    alignments_file = alignments_txt_file(
+        parameters, sample_id, amplicon_id
+    )
+    alignments = AlignmentsSet.from_file(None, alignments_file)
+    graph_file = variants_graph_txt_file(parameters, sample_id, amplicon_id)
+    graph = VariantsGraph.from_file(None, graph_file)
+    graph.set_variants_features(amplicon_seq, amplicon_id, clusters)
+    # Applying the filters to the graph:
+    # eliminating edges from alignments  with too many gaps
+    filter_nb_gaps(parameters, clusters, alignments, graph)
+    filter_min_quality(parameters, clusters, alignments, graph, sample_id)
+    # Reset features to update coverage
+    graph.set_variants_features(amplicon_seq, amplicon_id, clusters)
+    graph.set_variants_vaf()
+    graph.set_chr_coordinates(manifest)
+    new_variants_list = graph.get_variants_and_features()
+    # Creating the lists of un-filtered indels and snps
+    amp_indels_list = []
+    for (variant, features) in new_variants_list:
+        if  variant.get_type() in INDEL:
+            amp_indels_list.append((variant, features))
+    return amp_indels_list
 
+def process_sample(
+    parameters, sample_id, run_id, run_name, amplicon_list,
+    manifest, control_calls, out_vcf_file, control_sample=True
+):
+    """
+    Filter SNP and indels calls for a sample, using control_calls to filter
+    with control_samples if control_sample is True and populating
+    control_calls otherwise.
+    Export the resulting variants in two VCF files, one prior to run snpEff
+    and one after running snpEff.
+
+    :param: parameters (Parameters): pipeline parameters
+    :param: sample_id (str): ID of the sample
+    :param: amplicon_list (list(str)): list of considered amplicons
+    :param: manifest (AmpliconsManifest): amplicons manifest
+    :param: control_calls (dict(sample_id ->
+    list((Variant, VariantFeatures)))): control variants
+    :param: control_sample (bool): True if sample_id is a control sample
+    """
+    def reformat_info(row):
+        """
+        Reformat the INFO field to integrate the actual scores recorded
+        in other fields
+        """
+        info_list = row[INFO_COL].split(';')
+        info_dict = {x.split('=')[0]: x.split('=')[1] for x in info_list}
+        info_dict[SCORE] = row[SCORE]
+        info_dict[COMPLEXITY] = row[COMPLEXITY]
+        info_dict[SUPPORT] = row[SUPPORT]
+        info_dict[OVERLAP] = row[OVERLAP]
+        info_dict[CONTROL] = row[CONTROL]
+        info_str = ';'.join([f"{k}={v}" for k, v in info_dict.items()])
+        return info_str
+
+    # Creating lists of all indels from the variants graph
+    # filtered to remove support by alignments with a number of gaps
+    # above filter_parameters[FILTER_NB_GAPS]
+    sample = sample_id.split('_S')[0]
+    in_indels_list = []
+    for amplicon_id in amplicon_list:
+        amp_indels_list = apply_amplicon_filters(
+            parameters, sample_id, amplicon_id, manifest
+        )
+        in_indels_list += amp_indels_list
+    # Filtering indels per sample
+    aggregated_indels_list_1 = aggregate_variants(in_indels_list)
+    # Extra features default values
+    score_dict = {}
+    for key in [SCORE, COMPLEXITY, SUPPORT, OVERLAP, CONTROL]:
+        score_dict[key] = SCORE_DEFAULT
+    score_dict[SAMPLE] = sample
+    score_dict[RUN_ID] = run_id
+    score_dict[RUN_NAME] = run_name
+    if control_sample:
+        # Recording but not writing indel calls
+        aggregated_indels_list = [
+            (variant, features, score_dict.copy())
+            for (variant, features) in aggregated_indels_list_1
+        ]
+        control_calls[sample_id] = aggregated_indels_list
+        out_indels_ext = f"{FILTERED_INDELS_VCF_EXT}_aux"
+        out_indels_vcf_file = vcf_sample_file(
+            parameters, sample_id, ext=out_indels_ext
+        )
+        vcf_write_variants_features(
+            out_indels_vcf_file, aggregated_indels_list
+        )
+    else:
+        # Writing indel calls in a VCF file
+        aggregated_indels_list_2 = [
+            (variant, features, score_dict.copy())
+            for (variant, features) in aggregated_indels_list_1
+        ]
+        aggregated_indels_list = get_control_samples_feature(
+            parameters, aggregated_indels_list_2, control_calls
+        )
+        # Writing features in a temporary VCF file
+        out_indels_ext = f"{FILTERED_INDELS_VCF_EXT}_aux"
+        out_indels_vcf_file = vcf_sample_file(
+            parameters, sample_id, ext=out_indels_ext
+        )
+        vcf_write_variants_features(
+            out_indels_vcf_file, aggregated_indels_list
+        )
+        # Reading the VCF file into a DataFrame
+        indels_df = vcf_import_df(out_indels_vcf_file)
+        # Bug: the initial VCF files
+        indels_df[ID_COL] = indels_df.apply(lambda row: '.', axis=1)
+        # os.remove(out_indels_vcf_file)
+        indels_df.sort_values(by=[CHR_COL, POS_COL], inplace=True)
+        indels_df.reset_index(drop=True, inplace=True)
+        # Updating the penalty scores
+        add_complexity_score(
+            indels_df, manifest, COMP_KMIN, COMP_KMAX, COMP_L
+        )
+        add_support_score(indels_df)
+        add_overlap_score(indels_df)
+        add_control_score(indels_df)
+        add_confidence_score(indels_df)
+        indels_df[INFO_COL] = indels_df.apply(
+            lambda row: reformat_info(row), axis=1
+        )
+        indels_df.drop(
+            columns=[SCORE, COMPLEXITY, SUPPORT, OVERLAP, CONTROL],
+            inplace=True
+        )
+        vcf_write_df(
+            out_vcf_file, indels_df, sorting=VCF_SORT_POS, append=True
+        )
+
+
+if __name__ == "__main__":
     ARGS_RUNS = ['runs', None, 'Run ID and name csv file']
     ARGS_MANIFEST = ['-m', '--manifest','Manifest file name']
 
@@ -92,157 +241,6 @@ if __name__ == "__main__":
                         default=MANIFEST_V4_FILE,
                         help=ARGS_MANIFEST[2])
     args = parser.parse_args()
-
-    INDELS, SNPS = 'INDELS', 'SNPS'
-
-    def apply_amplicon_filters(parameters, sample_id, amplicon_id, manifest):
-        """
-        Filters on all calls from a single amplicon on the variants graph
-        :param: parameters (Parameters): pipeline parameters
-        :param: in_list (list(Variant, VariantFeatures)): input list of variants
-        and their features
-        :param: sample_id (str): sample ID
-        :param: amplicon ID (str): amplicon ID
-        :param: manifest (AmpliconsManifest): amplicon manifest
-        :return:  list(Variant, VariantFeatures): list of un-filtered indels
-        and their features
-        """
-        # Loading data needed for filters, amplicon sequence, clusters,
-        # alignments, variants-graph
-        amplicon_seq = manifest.get_amplicon(amplicon_id).get_seq()
-        clusters_file = clusters_txt_file(parameters, sample_id, amplicon_id)
-        clusters = ClusterReadsSet.from_file(None, clusters_file)
-        alignments_file = alignments_txt_file(
-            parameters, sample_id, amplicon_id
-        )
-        alignments = AlignmentsSet.from_file(None, alignments_file)
-        graph_file = variants_graph_txt_file(parameters, sample_id, amplicon_id)
-        graph = VariantsGraph.from_file(None, graph_file)
-        graph.set_variants_features(amplicon_seq, amplicon_id, clusters)
-        graph.set_variants_vaf()
-        # Applying the filters to the graph:
-        # eliminating edges from alignments  with too many gaps
-        filter_nb_gaps(parameters, clusters, alignments, graph)
-        filter_min_quality(parameters, clusters, alignments, graph, sample_id)
-        graph.set_chr_coordinates(manifest)
-        new_variants_list = graph.get_variants_and_features()
-        # Creating the lists of un-filtered indels and snps
-        amp_indels_list = []
-        for (variant, features) in new_variants_list:
-            if  variant.get_type() in INDEL:
-                amp_indels_list.append((variant, features))
-        return amp_indels_list
-
-
-    def process_sample(
-        parameters, sample_id, run_id, run_name, amplicon_list,
-        manifest, control_calls, out_vcf_file, control_sample=True
-    ):
-        """
-        Filter SNP and indels calls for a sample, using control_calls to filter
-        with control_samples if control_sample is True and populating
-        control_calls otherwise.
-        Export the resulting variants in two VCF files, one prior to run snpEff
-        and one after running snpEff.
-
-        :param: parameters (Parameters): pipeline parameters
-        :param: sample_id (str): ID of the sample
-        :param: amplicon_list (list(str)): list of considered amplicons
-        :param: manifest (AmpliconsManifest): amplicons manifest
-        :param: control_calls (dict([INDELS, SNPS] ->
-        list((Variant, VariantFeatures)))): control variants
-        :param: control_sample (bool): True if sample_id is a control sample
-        """
-        def reformat_info(row):
-            """
-            Reformat the INFO field to integrate the actual scores recorded
-            in other fields
-            """
-            info_list = row[INFO_COL].split(';')
-            info_dict = {x.split('=')[0]: x.split('=')[1] for x in info_list}
-            info_dict[SCORE] = row[SCORE]
-            info_dict[COMPLEXITY] = row[COMPLEXITY]
-            info_dict[SUPPORT] = row[SUPPORT]
-            info_dict[OVERLAP] = row[OVERLAP]
-            info_dict[CONTROL] = row[CONTROL]
-            info_str = ';'.join([f"{k}={v}" for k, v in info_dict.items()])
-            return info_str
-
-        # Creating lists of all indels from the variants graph
-        # filtered to remove support by alignments with a number of gaps
-        # above filter_parameters[FILTER_NB_GAPS]
-        sample = sample_id.split('_S')[0]
-        in_indels_list = []
-        for amplicon_id in amplicon_list:
-            amp_indels_list = apply_amplicon_filters(
-                parameters, sample_id, amplicon_id, manifest
-            )
-            in_indels_list += amp_indels_list
-        # Filtering indels per sample
-        aggregated_indels_list_1 = aggregate_variants(in_indels_list)
-        # Extra features default values
-        score_dict = {}
-        for key in [SCORE, COMPLEXITY, SUPPORT, OVERLAP, CONTROL]:
-            score_dict[key] = SCORE_DEFAULT
-        score_dict[SAMPLE] = sample
-        score_dict[RUN_ID] = run_id
-        score_dict[RUN_NAME] = run_name
-        if control_sample:
-            # Recording but not writing indel calls
-            aggregated_indels_list = [
-                (variant, features, score_dict.copy())
-                for (variant, features) in aggregated_indels_list_1
-            ]
-            control_calls[sample_id] = aggregated_indels_list
-            out_indels_ext = f"{FILTERED_INDELS_VCF_EXT}_aux"
-            out_indels_vcf_file = vcf_sample_file(
-                parameters, sample_id, ext=out_indels_ext
-            )
-            vcf_write_variants_features(
-                out_indels_vcf_file, aggregated_indels_list
-            )
-        else:
-            # Writing indel calls in a VCF file
-            aggregated_indels_list_2 = [
-                (variant, features, score_dict.copy())
-                for (variant, features) in aggregated_indels_list_1
-            ]
-            aggregated_indels_list = get_control_samples_feature(
-                parameters, aggregated_indels_list_2, control_calls
-            )
-            # Writing features in a temporary VCF file
-            out_indels_ext = f"{FILTERED_INDELS_VCF_EXT}_aux"
-            out_indels_vcf_file = vcf_sample_file(
-                parameters, sample_id, ext=out_indels_ext
-            )
-            vcf_write_variants_features(
-                out_indels_vcf_file, aggregated_indels_list
-            )
-            # Reading the VCF file into a DataFrame
-            indels_df = vcf_import_df(out_indels_vcf_file)
-            # Bug: the initial VCF files
-            indels_df[ID_COL] = indels_df.apply(lambda row: '.', axis=1)
-            os.remove(out_indels_vcf_file)
-            indels_df.sort_values(by=[CHR_COL, POS_COL], inplace=True)
-            indels_df.reset_index(drop=True, inplace=True)
-            # Updating the penalty scores
-            add_complexity_score(
-                indels_df, manifest, COMP_KMIN, COMP_KMAX, COMP_L
-            )
-            add_support_score(indels_df)
-            add_overlap_score(indels_df)
-            add_control_score(indels_df)
-            add_confidence_score(indels_df)
-            indels_df[INFO_COL] = indels_df.apply(
-                lambda row: reformat_info(row), axis=1
-            )
-            indels_df.drop(
-                columns=[SCORE, COMPLEXITY, SUPPORT, OVERLAP, CONTROL],
-                inplace=True
-            )
-            vcf_write_df(
-                out_vcf_file, indels_df, sorting=VCF_SORT_POS, append=True
-            )
 
     # Loading ghe amplicons manifest and the list of non-excluded non-MSI
     # samples

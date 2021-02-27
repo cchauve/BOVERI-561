@@ -76,9 +76,6 @@ def extract_files(files_list, s3_bucket, out_dir, manifest_file):
         file_dir, file_name = os.path.split(file_path)
         if file_name.endswith(MAIN_EXT):
             sample_id = file_name.replace(MAIN_EXT, '')
-            sample_vcf_file_name = f"{sample_id}{VCF_EXT}"
-            sample_vcf_file_path1 = os.path.join(out_dir, sample_vcf_file_name)
-            sample_vcf_file_path2 = os.path.join(out_dir, sample_vcf_file_name)
             s3_file_path = f"s3://{s3_bucket}/{file_path}"
             aws_cp_cmd = AWS_CP + [s3_file_path, out_dir]
             subprocess.call(aws_cp_cmd)
