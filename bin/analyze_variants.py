@@ -68,9 +68,21 @@ VAF_KEY = 'vaf_range'
 NG_KEY = 'ng_range'
 SCORES_KEY = 'scores'
 W_COMP_KEY = 'w_comp'
-BLACKLIST_KEY = 'blacklist'
+BLACKLIST_KEY = 'blacklist_files'
 EXPECTED_INDELS_FILE = 'expected_indels_file'
 OUT_SUFFIX_KEY = 'out_suffix'
+MANIFEST_KEY = 'manifest_file'
+FILTER_ARTIFACTS_KEY = 'filter_artifacts'
+# Origin of a blacklisted indel
+BL_ARTIFACT = 'Artifact'
+BL_BLACKLIST = 'blacklisted'
+# Used columns of blacklist files
+BL_ALIQUOT = 'aliquot_id'
+BL_INDEL = 'id'
+BL_ORIGIN = 'origin'
+
+# ------------------------------------------------------------------------------
+# Auxiliary functions
 
 def row_to_tuple(row):
     """
@@ -78,15 +90,12 @@ def row_to_tuple(row):
     """
     return (row[RUN_ID], row[SAMPLE], row[CHR], row[POS], row[REF], row[ALT])
 
-# ------------------------------------------------------------------------------
-# Auxiliary functions
-
 def read_parameters(yaml_file_path):
     """
     Read a YAML parameters file and returns a dictionary of parameters values
     """
     parameters = {BLACKLIST_KEY: [], GRID_KEY: None, OUT_SUFFIX_KEY: ''}
-    features_dict = {}
+    features_dict, blacklist_files = {}, []
     with open(yaml_file_path) as c_file:
         parameters_dict = yaml.safe_load(c_file)
         for key, value in parameters_dict.items():
@@ -96,26 +105,30 @@ def read_parameters(yaml_file_path):
                     for x in value.split()
                 ]
             elif key in [SCORES_KEY, W_COMP_KEY]:
-                feature_range = str(value).split()
-                start, end = int(feature_range[0]), int(feature_range[1])
-                step = float(feature_range[2])
+                value_split = str(value).split()
+                step = float(value_split[2])
+                [r_start, r_end] = [int(x) for x in value_split[0:2]]
                 features_dict[key] = [
-                    round(x * step, 2) for x in range(start, end)
+                    round(x * step, 2) for x in range(r_start, r_end)
                 ]
             elif key in [VAF_KEY, NG_KEY]:
-                feature_ranges = str(value).split()
-                parameters[key] = []
-                for feature_range in feature_ranges:
-                    feature_values = [
-                        float(x) for x in feature_range.split('_')
-                    ]
-                    parameters[key].append(feature_values)
+                parameters[key] = [
+                    [float(x) for x in y.split('_')] for y in str(value).split()
+                ]
             elif key == BLACKLIST_KEY:
-                parameters[BLACKLIST_KEY] = read_blacklist(value)
+                blacklist_files = value.split()
             elif key == LLOD_KEY:
-                parameters[LLOD_KEY] = float(value)
+                parameters[key] = float(value)
             elif key == OUT_SUFFIX_KEY:
-                parameters[OUT_SUFFIX_KEY] = value
+                parameters[key] = value
+            elif key == MANIFEST_KEY:
+                parameters[key] = pd.read_csv(value, sep='\t')
+            elif key == FILTER_ARTIFACTS_KEY:
+                parameters[key] = value
+    for blacklist_file in blacklist_files:
+        parameters[BLACKLIST_KEY] += read_blacklist(
+            blacklist_file, parameters[MANIFEST_KEY]
+        )
     if parameters[GRID_KEY] is None:
         parameters[GRID_KEY] = [
             (s, w)
@@ -124,45 +137,102 @@ def read_parameters(yaml_file_path):
         ]
     return parameters
 
-
-def read_blacklist(blacklist_csv_file):
+def coord_to_del(chr, start, end, manifest_df):
     """
-    Extracts from a CSV file a list of (chr, pos, ref, alt) describing indels
+    Given an interval chr:start-end, returns the corresponding sequence
+    extended by one base to the left
+    """
+    for _, amplicon in manifest_df.iterrows():
+        test_1 = amplicon['Chr'] == chr
+        test_2 = int(amplicon['Start']) < start
+        test_3 = int(amplicon['End']) >= end
+        if test_1 and test_2 and test_3:
+            pos = start - int(amplicon['Start']) - 1
+            ref_len = end - start + 1
+            ref = amplicon['Amplicon'][pos:pos + ref_len + 2]
+            alt = amplicon['Amplicon'][pos:pos + 1]
+            return {CHR: chr, POS: pos, REF: ref, ALT: alt}
+
+def read_blacklist(blacklist_tsv_file, manifest_df, sep='\t'):
+    """
+    Extracts from a CSV file a list of (aliquot, chr, pos, ref, alt) describing
+    indels
     :param: blacklist_csv_file (str): path to a CSV file describing indels in
     the format chr,pos,ref,alt
-    :return: list(str, int, str, str): list of blacklisted indels in the format
-    (chr, pos, ref, alt)
+    :param: manifest_df (DataFrame): amplicon manifest
+    :param: sep (str): separator in CSV file
+    :return: list(dict(str, str, int, str, str, str)): indexed by BL_ALIQUOT,
+    CHR, POS, REF, ALT, BL_ORIGIN
     """
     blacklist = []
-    with open(blacklist_csv_file) as csvfile:
-        blacklist_data = csv.reader(csvfile, delimiter=',')
-        for row in blacklist_data:
-            blacklist.append((row[0], int(row[1]), row[2], row[3]))
+    blacklist_df = pd.read_csv(blacklist_tsv_file, sep='\t')
+    for _, row in blacklist_df.iterrows():
+        indel_str = row[BL_INDEL].split(':')
+        indel = {
+            BL_ALIQUOT: row[BL_ALIQUOT],
+            BL_ORIGIN: row[BL_ORIGIN],
+            CHR: indel_str[0]
+        }
+        if len(indel_str) == 4:
+            indel[POS] = int(indel_str[1])
+            indel[REF], indel[ALT] = indel_str[2], indel_str[3]
+        else:
+            assert indel_str[2] == 'del'
+            [start, end] = [int(x) for x in indel_str[1].split(',')]
+            indel_dict = coord_to_del(indel_str[0], start, end, manifest_df)
+            for key in [POS, REF, ALT]:
+                indel[key] = indel_dict[key]
+        blacklist.append(indel)
     return blacklist
 
-def filter_blacklist(df, blacklist):
+def check_blacklist(expected_df, blacklist):
+    """
+    Check that no expected indel is in the blacklist
+    """
+    index = []
+    for indel in blacklist:
+        index += list(
+            expected_df.loc[
+                (expected_df[SAMPLE].str.startswith(indel[BL_ALIQUOT])) &
+                (expected_df[CHR]==indel[CHR]) &
+                (expected_df[POS]==indel[POS]) &
+                (expected_df[REF]==indel[REF]) &
+                (expected_df[ALT]==indel[ALT])
+            ].index
+        )
+    return len(index) == 0
+
+
+def filter_blacklist(df, blacklist, filter_artifacts):
     """
     Returns a dataframe of variants from df by filtering all calls that match
     the features (chr, pos, ref, alt) in blacklist
     :param: df (DataFrame): dataframe of indels with a column SAMPLE
-    :param: blacklist (list(str, int, str, str)): list of blacklisted indels
-    in the format (chr, pos, ref, alt)
+    :param: blacklist list(dict(str, str, int, str, str, str)): indexed by
+    BL_ALIQUOT, CHR, POS, REF, ALT, BL_ORIGIN
+    :param: filter_artifacts (bool): if True, indels in the blacklist whose
+    origin is ARTIFACT are considered, otherwise they are not
     :return: DataFrame: input dataframe without any row where the entries
     CHR, POS, REF, ALT match a blacklisted indel from blacklist
     """
     index = []
-    for (chrom, pos, ref, alt) in blacklist:
+    if not filter_artifacts:
+        blacklist_aux = [x for x in blacklist if x[BL_ORIGIN] != BL_ARTIFACT]
+    else:
+        blacklist_aux = blacklist
+    for indel in blacklist_aux:
         index += list(
             df.loc[
-                (df[CHR]==chrom) &
-                (df[POS]==pos) &
-                (df[REF]==ref) &
-                (df[ALT]==alt)
+                (df[SAMPLE].str.startswith(indel[BL_ALIQUOT])) &
+                (df[CHR]==indel[CHR]) &
+                (df[POS]==indel[POS]) &
+                (df[REF]==indel[REF]) &
+                (df[ALT]==indel[ALT])
             ].index
         )
     return  df.loc[~df.index.isin(index)]
 
-def get_runs_data(run_id_list, samples_list, blacklist=[]):
+def get_runs_data(run_id_list, samples_list, blacklist=[], filter_artifacts=False):
     """
     Returns the dataframes of observed indels for run in run_id_list and
     sample from sample_list from
@@ -170,8 +240,9 @@ def get_runs_data(run_id_list, samples_list, blacklist=[]):
     :param: run_id_list (list(str)): ID of the runs to consider
     :param: samples_list (list(str)): list of samples in the run for which there
     is at least one expected indel
-    :param: blacklist (list(str, int, str, str)): list of blacklisted indels
-    in the format (chr, pos, ref, alt)
+    :param: blacklist (list(dict(str, str, int, str, str, str)): indexed by
+    BL_ALIQUOT, CHR, POS, REF, ALT, BL_ORIGIN
+    :param: filter_artifacts (bool): if True filter artifacts from blakclist
     :return DataFrame: dataframe of observed indels
     """
     observed_indels_df_list = []
@@ -191,7 +262,9 @@ def get_runs_data(run_id_list, samples_list, blacklist=[]):
         observed_indels_df_list.append(observed_indels_df)
         # Excluding indels in the blasklist
     all_observed_indels_df = pd.concat(observed_indels_df_list)
-    observed_indels_df = filter_blacklist(all_observed_indels_df, blacklist)
+    observed_indels_df = filter_blacklist(
+        all_observed_indels_df, blacklist, filter_artifacts
+    )
     observed_indels_df.reset_index(drop=True, inplace=True)
     return observed_indels_df
 
@@ -223,11 +296,15 @@ def compare_indels(
         if EXPECTED in indel_keys and OBSERVED in indel_keys:
             indel_idx = indel_2_idx[indel_tuple][OBSERVED]
             score = observed_df.at[indel_idx, W_SCORE]
+            overlap = observed_df.at[indel_idx, OVERLAP]
+            control = observed_df.at[indel_idx, CONTROL]
+            test_overlap_control = overlap < 1.0 and control < 1.0
+            test_call = test_overlap_control and score <= score_max
             vaf = observed_df.at[indel_idx, VAF]
             sample = row[SAMPLE]
-            if score <= score_max and vaf >= lpi[sample]:
+            if test_call and vaf >= lpi[sample]:
                 index_dict[TP].append((index, indel_idx))
-            if score > score_max or vaf < lpi[sample]:
+            if (not test_call) or vaf < lpi[sample]:
                 index_dict[FN_O].append((index, indel_idx))
         if EXPECTED in indel_keys and OBSERVED not in indel_keys:
              index_dict[FN_U].append(index)
@@ -235,11 +312,14 @@ def compare_indels(
     for index, row in observed_df.iterrows():
         indel_tuple = row_to_tuple(row)
         indel_keys = indel_2_idx[indel_tuple].keys()
-        if OBSERVED in indel_keys:
+        if EXPECTED not in indel_keys:
             vaf, score, sample = row[VAF], row[W_SCORE], row[SAMPLE]
-            if score <= score_max and  vaf >= lve[sample] and EXPECTED not in indel_keys:
+            overlap, control = row[OVERLAP], row[CONTROL]
+            test_overlap_control = overlap < 1.0 and control < 1.0
+            test_call = test_overlap_control and score <= score_max
+            if test_call and  vaf >= lve[sample]:
                 index_dict[FP].append(index)
-            if score > score_max and  vaf >= lve[sample] and EXPECTED not in indel_keys:
+            if (not test_call) and vaf >= lve[sample]:
                 index_dict[TN].append(index)
     return index_dict
 
@@ -273,7 +353,6 @@ def compute_llod(expected_df, observed_df, indel_2_idx, score_max, threshold):
         total_uncalled += nb_uncalled[vaf]
         if total_called / (total_called + total_uncalled) >= threshold:
             llod = vaf
-        # print(f"VAF: {vaf}\t Total called: {total_called}\tTotal uncalled: {total_uncalled}")
     return llod
 
 # ------------------------------------------------------------------------------
@@ -469,7 +548,7 @@ def process_indels(
         # llod = 0.0
         # print(f"\tLLOD={llod}")
         for (vaf_values, ng_range) in settings_grid:
-            vaf_values_str = '_'.join([str(x) for x in vaf_values])
+            vaf_values_str = "{:<10}".format('_'.join([str(x) for x in vaf_values]))
             ng_range_str = f"{ng_range[0]}_{ng_range[1]}"
             out_prefix = [vaf_values_str, ng_range_str, score_max, w_comp]
             # Expected indels
@@ -523,6 +602,7 @@ if __name__ == "__main__":
     NG_RANGES = PARAMETERS[NG_KEY]
     SETTINGS_GRID = [(vaf, ng) for vaf in VAF_RANGES for ng in NG_RANGES]
     BLACKLIST = PARAMETERS[BLACKLIST_KEY]
+    FILTER_ARTIFACTS = PARAMETERS[FILTER_ARTIFACTS_KEY]
     # LLOD_THRESHOLD = PARAMETERS[LLOD_KEY]
     # Creating and opening output files
     OUT_FILES = open_out_files(PARAMETERS, args.exp_indels_file)
@@ -538,7 +618,11 @@ if __name__ == "__main__":
     EXPECTED_INDELS_DF = ALL_EXPECTED_INDELS_DF.loc[
         ALL_EXPECTED_INDELS_DF[SAMPLE].isin(SAMPLES_LIST)
     ]
-    RUNS_INDELS_DF = get_runs_data(RUNS_LIST, SAMPLES_LIST, blacklist=BLACKLIST)
+    assert check_blacklist(EXPECTED_INDELS_DF, BLACKLIST)
+    RUNS_INDELS_DF = get_runs_data(
+        RUNS_LIST, SAMPLES_LIST,
+        blacklist=BLACKLIST, filter_artifacts=FILTER_ARTIFACTS
+    )
     # Processing indels for all parameters and threshold settings
     print('Processing indels')
     process_indels(
