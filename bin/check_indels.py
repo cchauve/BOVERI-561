@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Check a potential FP
+Check the presence of a set of indels in observed indels
 """
 import argparse
 import numpy as np
@@ -26,23 +26,8 @@ SUPPORT = 'support'
 OVERLAP = 'overlap'
 CONTROL = 'control'
 
-
-# Indel calls status
-FP = 'FP'
-TP = 'TP'
-FN = 'FN'
-FN_U = 'FN_u'
-FN_O = 'FN_o'
-TN = 'TN'
-STATUS_KEYS = [FP, TP, FN_U, FN_O, TN]
-EXPECTED = 'E'
-OBSERVED = 'O'
-
-# Settings features
-W_COMP = 'w_comp'
-LLOD = 'llod'
-VAF_VAL = 'vaf_values'
-NG_RANGE = 'ng_range'
+BL_ALIQUOT = 'aliquot_id'
+BL_ID = 'id'
 
 # ------------------------------------------------------------------------------
 # Global input
@@ -58,12 +43,10 @@ INDEL_FEATURES_VAF_2 = [W_SCORE, SCORE, COMPLEXITY, SUPPORT, OVERLAP, CONTROL]
 INDEL_FEATURES_VAF = INDEL_FEATURES_VAF_1 + INDEL_FEATURES_VAF_2
 
 # Paremeters keys for the YAML file
-INDELS_FILES_KEY = 'indels_files'
-EXPECTED_INDELS_FILE = 'expected_indels_file'
 MANIFEST_KEY = 'manifest_file'
 # Used columns of blacklist files
 ALIQUOT = 'aliquot_id'
-INDEL = 'id'
+INDEL_ID = 'id'
 
 # ------------------------------------------------------------------------------
 # Auxiliary functions
@@ -72,19 +55,12 @@ def read_parameters(yaml_file_path):
     """
     Read a YAML parameters file and returns a dictionary of parameters values
     """
-    parameters = {INDELS_FILES_KEY: []}
-    indels_files = []
+    parameters = {}
     with open(yaml_file_path) as c_file:
         parameters_dict = yaml.safe_load(c_file)
         for key, value in parameters_dict.items():
-            if key == INDELS_FILES_KEY:
-                indels_files = value.split()
-            elif key == MANIFEST_KEY:
+            if key == MANIFEST_KEY:
                 parameters[key] = pd.read_csv(value, sep='\t')
-    for indels_file in indels_files:
-        parameters[INDELS_FILES_KEY] += read_indels(
-            indels_file, parameters[MANIFEST_KEY]
-        )
     return parameters
 
 def coord_to_del(chr, start, end, manifest_df):
@@ -169,22 +145,27 @@ if __name__ == "__main__":
     # Analysis parameters
     # Input file
     ARGS_EXPECTED_FILE = ['exp_indels_file', None, 'Expected indels file']
+    ARGS_TSV_INDELS_FILE = ['tsv_indels_file', None, 'Checked indels file']
     # Black list file
     ARGS_PARAMETERS_FILE = ['parameters_file', None, 'Parameters YAML file']
     parser = argparse.ArgumentParser(description='Indels testing: report')
     parser.add_argument(ARGS_EXPECTED_FILE[0],
                         type=str,
                         help=ARGS_EXPECTED_FILE[2])
+    parser.add_argument(ARGS_TSV_INDELS_FILE[0],
+                        type=str,
+                        help=ARGS_TSV_INDELS_FILE[2])
     parser.add_argument(ARGS_PARAMETERS_FILE[0],
                         type=str,
                         help=ARGS_PARAMETERS_FILE[2])
     args = parser.parse_args()
     # Reading parameters
     PARAMETERS = read_parameters(args.parameters_file)
-    INDELS =  PARAMETERS[INDELS_FILES_KEY]
     # Reading all expected indels
     ALL_EXPECTED_INDELS_DF = pd.read_csv(args.exp_indels_file, sep='\t')
     ALL_EXPECTED_INDELS_DF.rename(columns={'chromosome': CHR}, inplace=True)
+    # Reading checked indels file
+    CHECKED_INDELS_DF = pd.read_csv(args.tsv_indels_file, sep='\t')
     # List of runs and samples with at least one expected indel
     RUNS_LIST = list(ALL_EXPECTED_INDELS_DF[RUN_ID].unique())
     SAMPLES_LIST = list(ALL_EXPECTED_INDELS_DF[SAMPLE].unique())
@@ -193,7 +174,15 @@ if __name__ == "__main__":
     )
     # Processing indels for all parameters and threshold settings
     print('indel\tnb_occ\tmin_vaf\tmax_vaf\tmean_vaf\tmin_ctrl\tmax_ctrl\tmean_ctrl')
-    for indel in INDELS:
+    for _, indel_row in CHECKED_INDELS_DF.iterrows():
+        indel_1 = indel_row[INDEL_ID].split(':')
+        indel = {
+            ALIQUOT: indel_row[ALIQUOT],
+            CHR: indel_1[0],
+            POS: int(indel_1[1]),
+            REF: indel_1[2],
+            ALT: indel_1[3]
+        }
         indel_df = RUNS_INDELS_DF.loc[
             (RUNS_INDELS_DF[SAMPLE].str.startswith(indel[ALIQUOT])) &
             (RUNS_INDELS_DF[CHR]==indel[CHR]) &
